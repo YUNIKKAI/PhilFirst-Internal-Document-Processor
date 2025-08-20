@@ -325,6 +325,7 @@
   </div>
 
   <script>
+    const uploadUrl = "{{ url_for('renewal.renewal_handler') }}"
     class FileUploader {
       constructor() {
         this.uploadArea = document.getElementById('upload-area');
@@ -470,7 +471,7 @@
             formData.append('files', file);
           }
           
-          const response = await fetch('/', {
+          const response = await fetch(uploadUrl, {
             method: 'POST',
             body: formData
           });
