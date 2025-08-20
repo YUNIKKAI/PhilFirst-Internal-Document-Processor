@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhilFirst Renewal Notice Extractor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+    }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      padding: 20px 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      max-width: 700px;
+      width: 100%;
+      overflow: hidden;
+    }
+    
+    .logo-section {
+      background: white;
+      padding: 24px 24px 0 24px;
+      text-align: center;
+    }
+    
+    .logo {
+      max-width: 200px;
+      max-height: 80px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #04049c 0%, #137b04 100%);
+      color: white;
+      padding: 32px 24px;
+      text-align: center;
+    }
+    
+    .header h1 {
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    
+    .header p {
+      opacity: 0.9;
+      font-size: 1rem;
+    }
+    
+    .supported-prefixes {
+      background: rgba(255, 255, 255, 0.1);
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    
+    .prefix-list {
+      margin-top: 4px;
+      font-weight: 500;
+    }
+    
+    .content {
+      padding: 32px 24px;
+    }
+    
+    .upload-area {
+      border: 2px dashed #137b04;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      background: #f8fffe;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    
+    .upload-area:hover {
+      border-color: #04049c;
+      background: #f0f0ff;
+    }
+    
+    .upload-area.dragover {
+      border-color: #04049c;
+      background: #f0f0ff;
+      transform: scale(1.02);
+    }
+    
+    .upload-icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      color: #137b04;
+    }
+    
+    .upload-text {
+      font-size: 1.1rem;
+      color: #333;
+      margin-bottom: 16px;
+    }
+    
+    .upload-subtext {
+      color: #666;
+      margin-bottom: 20px;
+    }
+    
+    input[type="file"] { 
+      display: none; 
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 1rem;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #137b04 0%, #04049c 100%);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(19, 123, 4, 0.3);
+    }
+    
+    .btn-secondary {
+      background: #f8f9fa;
+      color: #333;
+      border: 2px solid #dee2e6;
+    }
+    
+    .btn-secondary:hover {
+      background: #e9ecef;
+    }
+    
+    .submit-btn {
+      margin-top: 24px;
+      width: 100%;
+      padding: 16px;
+      font-size: 1.1rem;
+    }
+    
+    .submit-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .file-list {
+      margin-top: 20px;
+      padding: 0;
+      list-style: none;
+    }
+    
+    .file-item {
+      background: #f8f9fa;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+    
+    .file-name {
+      color: #137b04;
+      font-weight: 500;
+    }
+    
+    .file-size {
+      color: #666;
+      font-size: 0.8rem;
+    }
+    
+    .message {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-top: 16px;
+      font-weight: 500;
+    }
+    
+    .error {
+      background: #fee;
+      color: #c33;
+      border: 1px solid #fcc;
+    }
+    
+    .success {
+      background: #efe;
+      color: #363;
+      border: 1px solid #cfc;
+    }
+    
+    .warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+    
+    .info {
+      background: #e7f3ff;
+      color: #0366d6;
+      border: 1px solid #b3d8ff;
+    }
+    
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+      font-size: 0.9rem;
+      border-top: 1px solid #eee;
+    }
+    
+    .loading-spinner {
+      display: none;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #137b04;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .processing .loading-spinner {
+      display: inline-block;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        margin: 10px;
+      }
+      
+      .logo-section {
+        padding: 20px 16px 0 16px;
+      }
+      
+      .logo {
+        max-width: 150px;
+        max-height: 60px;
+      }
+      
+      .header {
+        padding: 24px 20px;
+      }
+      
+      .header h1 {
+        font-size: 1.5rem;
+      }
+      
+      .content {
+        padding: 24px 20px;
+      }
+      
+      .upload-area {
+        padding: 30px 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo-section">
+      <img src="/static/logo.png" alt="PhilFirst Logo" class="logo">
+    </div>
+    
+    <div class="header">
+      <h1>Renewal Notice Extractor</h1>
+      <p>Extract renewal notices from PDF documents</p>
+    </div>
+    
+    <form id="upload-form" method="POST" enctype="multipart/form-data">
+      <div class="content">
+        <div class="upload-area" id="upload-area">
+          <div class="upload-icon">📄</div>
+          <div class="upload-text">Drop your PDF files here</div>
+          <div class="upload-subtext">or click to browse</div>
+          <label for="file-input" class="btn btn-secondary">
+            Choose Files
+          </label>
+          <input type="file" id="file-input" name="files" multiple accept=".pdf">
+        </div>
+        
+        <ul class="file-list" id="file-list"></ul>
+        
+        <div id="messages"></div>
+        
+        <button type="submit" class="btn btn-primary submit-btn" id="submit-btn">
+          <span class="loading-spinner"></span>
+          <span class="btn-text">Process Files</span>
+        </button>
+      </div>
+    </form>
+    
+    <div class="footer">
+      <p>Supported format: PDF | Maximum file size: 16MB | Maximum total size: 64MB</p>
+    </div>
+  </div>
+
+  <script>
+    class FileUploader {
+      constructor() {
+        this.uploadArea = document.getElementById('upload-area');
+        this.fileInput = document.getElementById('file-input');
+        this.fileList = document.getElementById('file-list');
+        this.messages = document.getElementById('messages');
+        this.submitBtn = document.getElementById('submit-btn');
+        this.form = document.getElementById('upload-form');
+        
+        this.maxFileSize = 16 * 1024 * 1024; // 16MB
+        this.maxTotalSize = 64 * 1024 * 1024; // 64MB
+        
+        this.initEventListeners();
+      }
+      
+      initEventListeners() {
+        // File input change
+        this.fileInput.addEventListener('change', (e) => {
+          this.handleFiles(e.target.files);
+        });
+        
+        // Drag and drop
+        this.uploadArea.addEventListener('click', (e) => {
+          // Only trigger file input if clicking on the upload area itself, not on the label
+          if (e.target === this.uploadArea || e.target.classList.contains('upload-icon') || 
+              e.target.classList.contains('upload-text') || e.target.classList.contains('upload-subtext')) {
+            this.fileInput.click();
+          }
+        });
+        
+        this.uploadArea.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          this.uploadArea.classList.add('dragover');
+        });
+        
+        this.uploadArea.addEventListener('dragleave', () => {
+          this.uploadArea.classList.remove('dragover');
+        });
+        
+        this.uploadArea.addEventListener('drop', (e) => {
+          e.preventDefault();
+          this.uploadArea.classList.remove('dragover');
+          this.handleFiles(e.dataTransfer.files);
+        });
+        
+        // Form submission
+        this.form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          this.submitFiles();
+        });
+      }
+      
+      handleFiles(files) {
+        const validFiles = [];
+        let totalSize = 0;
+        
+        // Validate files
+        for (let file of files) {
+          if (file.type !== 'application/pdf') {
+            this.showMessage('Only PDF files are allowed.', 'error');
+            return;
+          }
+          
+          if (file.size > this.maxFileSize) {
+            this.showMessage(`File "${file.name}" exceeds 16MB limit.`, 'error');
+            return;
+          }
+          
+          totalSize += file.size;
+          validFiles.push(file);
+        }
+        
+        if (totalSize > this.maxTotalSize) {
+          this.showMessage('Total file size exceeds 64MB limit.', 'error');
+          return;
+        }
+        
+        // Update file input with valid files
+        const dataTransfer = new DataTransfer();
+        validFiles.forEach(file => dataTransfer.items.add(file));
+        this.fileInput.files = dataTransfer.files;
+        
+        this.displayFiles(validFiles);
+        this.clearMessages();
+        
+        if (validFiles.length > 0) {
+          this.showMessage(
+            `${validFiles.length} file(s) ready (${this.formatBytes(totalSize)} total)`,
+            'success'
+          );
+        }
+      }
+      
+      displayFiles(files) {
+        this.fileList.innerHTML = '';
+        
+        for (let file of files) {
+          const li = document.createElement('li');
+          li.className = 'file-item';
+          li.innerHTML = `
+            <span class="file-name">${file.name}</span>
+            <span class="file-size">${this.formatBytes(file.size)}</span>
+          `;
+          this.fileList.appendChild(li);
+        }
+      }
+      
+      formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+      
+      showMessage(text, type) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+        messageDiv.textContent = text;
+        this.messages.innerHTML = '';
+        this.messages.appendChild(messageDiv);
+      }
+      
+      clearMessages() {
+        this.messages.innerHTML = '';
+      }
+      
+      async submitFiles() {
+        if (!this.fileInput.files.length) {
+          this.showMessage('Please select at least one PDF file.', 'error');
+          return;
+        }
+        
+        // Show processing state
+        this.submitBtn.classList.add('processing');
+        this.submitBtn.disabled = true;
+        this.submitBtn.querySelector('.btn-text').textContent = 'Processing...';
+        this.showMessage('Processing your files, please wait...', 'info');
+        
+        try {
+          const formData = new FormData();
+          for (let file of this.fileInput.files) {
+            formData.append('files', file);
+          }
+          
+          const response = await fetch('/', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/zip')) {
+              // File download
+              const blob = await response.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = response.headers.get('content-disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'renewal_notices.zip';
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              document.body.removeChild(a);
+              
+              this.showMessage('Files processed successfully! Download started.', 'success');
+              this.resetForm();
+            } else {
+              // No renewal notices found
+              this.showMessage('No renewal notices found with supported policy prefixes in the uploaded files.', 'warning');
+            }
+          } else {
+            const errorText = await response.text();
+            this.showMessage(`Error: ${errorText}`, 'error');
+          }
+        } catch (error) {
+          this.showMessage('Network error. Please try again.', 'error');
+          console.error('Upload error:', error);
+        } finally {
+          // Reset button state
+          this.submitBtn.classList.remove('processing');
+          this.submitBtn.disabled = false;
+          this.submitBtn.querySelector('.btn-text').textContent = 'Process Files';
+        }
+      }
+      
+      resetForm() {
+        this.fileInput.value = '';
+        this.fileList.innerHTML = '';
+        setTimeout(() => this.clearMessages(), 3000);
+      }
+    }
+    
+    // Initialize uploader when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+      new FileUploader();
+    });
+  </script>
+</body>
+</html>
