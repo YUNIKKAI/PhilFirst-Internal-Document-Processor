@@ -1,0 +1,176 @@
+from flask import Flask, request, send_file, render_template_string, jsonify
+import os, tempfile
+
+app = Flask(__name__, static_folder='static')
+
+# Home Page
+HTML_PAGE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhilFirst Internal Tools</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      padding: 20px 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+      max-width: 700px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .logo-section {
+      background: white;
+      padding: 24px 24px 0 24px;
+      text-align: center;
+    }
+    .logo {
+      max-width: 200px;
+      height: auto;
+      object-fit: contain;
+    }
+    .header {
+      background: linear-gradient(135deg, #137b04 0%, #04049c 100%);
+      color: white;
+      padding: 20px 16px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .header p {
+      opacity: 0.9;
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
+    .content {
+      padding: 32px 24px;
+    }
+    .tool-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .tool-btn {
+      display: block;
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      font-weight: 500;
+      text-decoration: none;
+      color: white;
+      background: linear-gradient(135deg, #137b04 0%, #04049c 100%);
+      transition: background 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease;
+      line-height: 1.4;
+    }
+    .tool-btn i {
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+      display: block;
+      opacity: 0.9;
+    }
+    .tool-btn small {
+      display: block;
+      margin-top: 6px;
+      font-size: 0.85rem;
+      opacity: 0.9;
+      color: white;
+      line-height: 1.3;
+    }
+    .tool-btn:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.15);
+    }
+    /* Coming Soon inactive style */
+    .tool-btn.coming-soon {
+      background: #bbb;
+      color: #555;
+      cursor: not-allowed;
+    }
+    .tool-btn.coming-soon small {
+      color: #444;
+    }
+    .tool-btn.coming-soon:hover {
+      transform: none;
+      box-shadow: none;
+    }
+    .footer {
+      text-align: center;
+      padding: 16px;
+      color: #666;
+      font-size: 0.9rem;
+      border-top: 1px solid #eee;
+    }
+    @media (max-width: 768px) {
+      .tool-grid { grid-template-columns: 1fr; }
+      .header h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo-section">
+      <img src="/static/logo.png" alt="PhilFirst Logo" class="logo">
+    </div>
+    <div class="header">
+      <h1>Internal Document Processing Tool</h1>
+      <p>Select a tool to efficiently and securely handle Renewal Notices or Statements of Account.</p>
+    </div>
+    <div class="content">
+      <div class="tool-grid">
+        <a href="/renewal" class="tool-btn">
+          <i class="fas fa-file-pdf"></i>
+          Renewal Notices
+          <small>Upload PDF files and extract renewal processing reports</small>
+        </a>
+        <a href="#" class="tool-btn">
+          <i class="fas fa-file-invoice"></i>
+          SoA (Direct)
+          <small>Upload SOA (Direct) files and generate clean reports</small>
+        </a>
+        <a href="#" class="tool-btn">
+          <i class="fas fa-file-contract"></i>
+          SoA (Reinsurance)
+          <small>Upload SOA (Reinsurance) files and generate clean reports</small>
+        </a>
+        <a class="tool-btn coming-soon">
+          <i class="fas fa-hourglass-half"></i>
+          Coming Soon
+          <small>Please wait for future updates</small>
+        </a>
+      </div>
+    </div>
+    <div class="footer">
+      © 2025 PhilFirst – Internal Document Processing Tool
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+
+@app.route("/")
+def home():
+    # your HTML page here
+    return render_template_string(HTML_PAGE)
+
+# Register the `/renewal` route from app.py
+#app.register_blueprint(renewal_app.blueprint, url_prefix="/renewal")
+
+if __name__ == "__main__":
+    app.run(debug=True)
