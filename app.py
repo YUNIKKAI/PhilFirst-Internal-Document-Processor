@@ -2,7 +2,7 @@ from flask import Flask, render_template
 from config import Config
 from dotenv import load_dotenv
 from renewal.routes import renewal_bp
-# from soa_direct.routes import soa_bp  # Uncomment when ready
+from soa_direct.routes import soa_bp 
 
 def create_app():
     # Load environment variables
@@ -14,8 +14,7 @@ def create_app():
 
     # Register Blueprints
     app.register_blueprint(renewal_bp, url_prefix="/renewal")
-    # app.register_blueprint(soa_bp, url_prefix="/soa")  # Future integration
-
+    app.register_blueprint(soa_bp, url_prefix="/soa_direct") 
     # Root route
     @app.route("/")
     def home():

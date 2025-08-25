@@ -1,20 +1,18 @@
 from flask import Blueprint, render_template, request, send_file, flash, redirect, url_for, after_this_request
 from renewal.renewal_notices import extract_renewal_notices
 import shutil
-import logging
 
 renewal_bp = Blueprint("renewal", __name__)
-logger = logging.getLogger("renewal")
 
 @renewal_bp.route("/", methods=["GET", "POST"])
 def renewal_handler():
     if request.method == "POST":
-        files = request.files.getlist("pdf")
+        files = request.files.getlist("files")
         if not files or all(f.filename == '' for f in files):
             flash("No PDF files uploaded.")
             return redirect(url_for("renewal.renewal_handler"))
 
-        result = extract_renewal_notices(files, logger)
+        result = extract_renewal_notices(files)
         if not result:
             flash("No valid renewal notices found.")
             return redirect(url_for("renewal.renewal_handler"))
