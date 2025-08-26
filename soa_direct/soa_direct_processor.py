@@ -43,7 +43,15 @@ def make_prefix(name: str) -> str:
             words = words[:-1]
         prefix = " ".join(words[:2])
         prefix = prefix.replace("_&_", " & ")
-    return re.sub(r"[^A-Za-z0-9,& ]+", "", prefix)
+
+    # remove illegal characters
+    prefix = re.sub(r"[^A-Za-z0-9,& ]+", "", prefix)
+
+    # fallback if empty
+    if not prefix:
+        prefix = re.sub(r"[^A-Za-z0-9]", "", name)[:10]
+
+    return prefix
 
 def extract_soa_direct(files):
     temp_dir = tempfile.mkdtemp()
@@ -54,6 +62,9 @@ def extract_soa_direct(files):
     first_day_this_month = today.replace(day=1)
     last_day_prev_month = first_day_this_month - pd.Timedelta(days=1)
     date_str = last_day_prev_month.strftime("%B %d, %Y")
+
+    # Track used prefixes
+    used_prefixes = {}
 
     for file in files:
         if not file or file.filename == "":
@@ -91,8 +102,8 @@ def extract_soa_direct(files):
                 )
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        # Group by intermediary
-        for name, group in df.groupby("Intermediary"):
+        # Group by Branch and Intermediary
+        for (branch, name), group in df.groupby(["Branch", "Intermediary"]):
             safe_name = str(name).strip()
             totals = {col: "" for col in group.columns}
             for col in MONEY_COLS:
@@ -100,9 +111,37 @@ def extract_soa_direct(files):
                     totals[col] = group[col].sum()
             group_with_total = pd.concat([group, pd.DataFrame([totals])], ignore_index=True)
 
+            # Build prefix (first 2 words)
             prefix = make_prefix(safe_name)
+            last_word = safe_name.split()[-1] if safe_name else "X"
+            last_word = re.sub(r"[^A-Za-z0-9]", "", last_word)  # sanitize
+
+            # Normalize branch for filenames (use full branch name cleaned)
+            branch_val = str(branch).strip()
+            branch_clean = re.sub(r"[^A-Za-z0-9 ]", "", branch_val)  # FULL branch name
+
+            # Handle duplicates
+            if prefix not in used_prefixes:
+                filename_prefix = prefix
+                used_prefixes[prefix] = {branch_clean: 1}
+            elif branch_clean not in used_prefixes[prefix]:
+                filename_prefix = f"{prefix} ({branch_clean})"
+                used_prefixes[prefix][branch_clean] = 2
+            else:
+                count = used_prefixes[prefix][branch_clean] + 1
+                used_prefixes[prefix][branch_clean] = count
+                filename_prefix = f"{prefix} ({branch_clean}-{last_word})"
+
+            # Branch-based folder selection
+            branch_val_upper = branch_val.upper()
+            if branch_val_upper.startswith("HO - HEAD OFFICE"):
+                branch_folder = os.path.join(temp_dir, "HEAD OFFICE")
+            else:
+                branch_folder = os.path.join(temp_dir, "BRANCH")
+            os.makedirs(branch_folder, exist_ok=True)
+
             excel_filename = os.path.join(
-                temp_dir, f"{prefix}_SOA as of {date_str}.xlsx"
+                branch_folder, f"{filename_prefix}_SOA as of {date_str}.xlsx"
             )
             excel_files.append(excel_filename)
 
@@ -116,21 +155,32 @@ def extract_soa_direct(files):
                     "num_format": "#,##0.00",
                     "top": 1, "bottom": 2, "bold": True
                 })
+
                 last_row = len(group_with_total) + 1
 
                 for col_idx, col in enumerate(group_with_total.columns):
                     max_len = max(
                         group_with_total[col].astype(str).map(len).max(), len(col)
                     ) + 2
-                    worksheet.set_column(col_idx, col_idx, max_len)
-                    if col in MONEY_COLS:
+
+                    if col == "Assured Name":
+                        max_len = min(max_len, 40)
+                        worksheet.set_column(col_idx, col_idx, max_len)
+                    elif col == "Remarks":
+                        max_len = min(max_len, 30)
+                        worksheet.set_column(col_idx, col_idx, max_len)
+                    elif col in MONEY_COLS:
                         worksheet.set_column(col_idx, col_idx, 15, money_fmt)
                         worksheet.write(last_row - 1, col_idx, group_with_total.iloc[-1][col], total_fmt)
+                    else:
+                        worksheet.set_column(col_idx, col_idx, max_len)
 
-    # Create ZIP
+    # Create ZIP (preserve branch subfolders)
     zip_filename = os.path.join(temp_dir, f"SoA as of {date_str}.zip")
     with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
         for file in excel_files:
             if os.path.exists(file):
-                zipf.write(file, os.path.basename(file))
+                arcname = os.path.relpath(file, temp_dir)
+                zipf.write(file, arcname)
+
     return zip_filename, os.path.basename(zip_filename), temp_dir
