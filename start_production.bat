@@ -37,15 +37,15 @@ wsl -d Ubuntu-22.04 -- sudo service nginx start
 
 REM --- 8. Ensure Linux venv exists, create if missing
 echo 🐍 Checking WSL venv...
-wsl -d Ubuntu-22.04 -- bash -c "if [ ! -d 'venv' ]; then python3 -m venv venv && echo '✅ Linux venv created'; fi"
+wsl -d Ubuntu-22.04 -- bash -c "cd ~/philfirst-app/PhilFirst-Internal-Document-Processor && if [ ! -d 'venv' ]; then python3 -m venv venv && echo '✅ Linux venv created'; fi"
 
 REM --- 9. Install requirements in Linux venv
 echo 📦 Installing dependencies in WSL venv...
-wsl -d Ubuntu-22.04 -- bash -c "source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
+wsl -d Ubuntu-22.04 -- bash -c "cd ~/philfirst-app/PhilFirst-Internal-Document-Processor && source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
 
 REM --- 10. Start Gunicorn in WSL in new console
 echo 🌟 Starting Gunicorn in WSL on port %PORT%, logging to %LOGFILE%...
-start cmd /k wsl -d Ubuntu-22.04 -- bash -c "cd /mnt/c/Users/User/PhilFirst-Internal-Document-Processor && source venv/bin/activate && gunicorn -c gunicorn.conf.py -b 127.0.0.1:%PORT% wsgi:app >> /mnt/c/Users/User/PhilFirst-Internal-Document-Processor/%LOGFILE% 2>&1"
+start cmd /k wsl -d Ubuntu-22.04 -- bash -c "cd ~/philfirst-app/PhilFirst-Internal-Document-Processor && source venv/bin/activate && gunicorn -c gunicorn.conf.py -b 127.0.0.1:%PORT% wsgi:app >> ~/philfirst-app/PhilFirst-Internal-Document-Processor/%LOGFILE% 2>&1"
 
 echo ✅ Production environment initialized.
 pause
