@@ -166,115 +166,6 @@
       .content { padding: 24px 20px; }
       .upload-area { padding: 30px 15px; }
     }
-
-    /* ✅ Modal Styling */
-    .modal {
-      display: none; 
-      position: fixed; 
-      z-index: 1000; 
-      left: 0; top: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5);
-      justify-content: center; 
-      align-items: center;
-    }
-    .modal-content {
-      background: white;
-      padding: 24px;
-      border-radius: 12px;
-      max-width: 420px;
-      width: 90%;
-      text-align: center;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-      position: relative;
-      overflow: hidden;
-    }
-    .modal-content::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 6px;
-      background: linear-gradient(135deg, #04049c, #137b04);
-    }
-    .modal-content h2 { margin: 20px 0; font-size: 1.3rem; }
-     .modal-options {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      margin-top: 24px;
-    }
-
-    .modal-options .btn {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      padding: 14px 20px;
-      border-radius: 10px;
-      font-size: 1rem;
-      font-weight: 600;
-      transition: all 0.3s ease-in-out;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-
-    /* ✅ Match gradient look of Process Files */
-    .modal-options .btn-primary {
-      background: linear-gradient(135deg, #137b04 0%, #04049c 100%);
-      color: #fff;
-      border: none;
-    }
-    .modal-options .btn-primary:hover {
-      transform: translateY(-2px) scale(1.02);
-      box-shadow: 0 6px 16px rgba(4,4,156,0.25);
-    }
-    .modal-options .btn-primary:active {
-      transform: scale(0.97);
-    }
-
-    /* ✅ Exit button neutral but styled */
-    .modal-options .btn-secondary {
-      background: #f8f9fa;
-      color: #333;
-      border: 1px solid #dee2e6;
-    }
-    .modal-options .btn-secondary:hover {
-      background: #e9ecef;
-      transform: translateY(-2px);
-    }
-    .close-btn {
-      position: absolute;
-      right: 15px;
-      top: 10px;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: #666;
-    }
-
-    .manage-btn {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 10px;
-      font-size: 1.05rem;
-      font-weight: 600;
-      padding: 14px 20px;
-      border-radius: 10px;
-      transition: all 0.3s ease-in-out;
-    }
-    .manage-btn .btn-icon {
-      font-size: 1.3rem;
-    }
-    .manage-btn:hover {
-      background: linear-gradient(135deg, #fdfefe, #f5f7fa) padding-box,
-                  linear-gradient(135deg, #137b04, #04049c) border-box;
-      box-shadow: 0 6px 20px rgba(4, 4, 156, 0.15);
-      transform: translateY(-2px) scale(1.02);
-    }
-    .manage-btn:active {
-      transform: scale(0.98);
-    }
-
   </style>
 </head>
 <body>
@@ -308,29 +199,9 @@
           <span class="loading-spinner"></span>
           <span class="btn-text">Process Files</span>
         </button>
-
-        <!-- ✅ Updated: renamed + styled added button -->
-        <button type="button" class="btn btn-secondary btn-utility submit-btn manage-btn" id="manage-handlers-btn">
-          <span class="btn-icon">📂</span>
-          <span class="btn-label">Manage &amp; Merge Files</span>
-        </button>
       </div>
     </form>
     
-    <!-- ✅ Modal for Manage Handlers and File Merge -->
-    <div id="handlers-modal" class="modal">
-      <div class="modal-content">
-        <span class="close-btn" id="close-modal">&times;</span>
-        <h2>Manage &amp; Merge Options</h2>
-        <ul class="modal-options">
-          <li><button class="btn btn-primary">Add New Handler</button></li>
-          <li><button class="btn btn-primary">Modify Handler Intermediary</button></li>
-          <li><button class="btn btn-primary">Files to Merge</button></li>
-          <li><button class="btn btn-secondary" id="exit-modal">Exit</button></li>
-        </ul>
-      </div>
-    </div>
-
     <div class="footer">
       <p>Supported format: CSV | Maximum file size: 16MB | Maximum total size: 64MB</p>
     </div>
@@ -494,23 +365,7 @@
       }
     }
     
-    document.addEventListener('DOMContentLoaded', () => {
-      new FileUploader();
-
-      // ✅ Modal Logic
-      const modal = document.getElementById('handlers-modal');
-      const openBtn = document.getElementById('manage-handlers-btn');
-      const closeBtn = document.getElementById('close-modal');
-      const exitBtn = document.getElementById('close-modal');
-
-      openBtn.addEventListener('click', () => { modal.style.display = 'flex'; });
-      closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
-      exitBtn.addEventListener('click', () => { modal.style.display = 'none'; });
-
-      window.addEventListener('click', (e) => {
-        if (e.target === modal) modal.style.display = 'none';
-      });
-    });
+    document.addEventListener('DOMContentLoaded', () => new FileUploader());
   </script>
 </body>
 </html>
