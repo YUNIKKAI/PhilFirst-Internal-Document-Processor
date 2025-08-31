@@ -10,10 +10,10 @@ dist/
 build/
 
 # Virtual environment
-venv/
-ENV/
-env/
-.venv/
+#venv/
+#ENV/
+#env/
+#.venv/
 
 # IDEs and editors
 .vscode/
@@ -22,7 +22,7 @@ env/
 *~
 
 # Environment variables / secrets
-.env
+#.env
 instance/
 
 # Logs
