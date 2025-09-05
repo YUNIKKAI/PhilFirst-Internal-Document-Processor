@@ -292,6 +292,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
     date_str = last_day_prev_month.strftime("%B %d, %Y")
 
     used_prefixes = {}
+    unmapped_intermediaries = []   # <--- NEW list
 
     # Load CSV files
     combined_rows = []
@@ -311,7 +312,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         zip_filename = os.path.join(temp_dir, f"SoA as of {date_str}.zip")
         with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED):
             pass
-        return zip_filename, os.path.basename(zip_filename), temp_dir
+        return zip_filename, os.path.basename(zip_filename), temp_dir, []
 
     df_all = pd.concat(combined_rows, ignore_index=True)
     df_all["DaysDiff"] = (today - df_all["Incept Date"]).dt.days
@@ -347,9 +348,8 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         subtotal_fmt = workbook.add_format({
             "num_format": "#,##0.00", "bold": True, "bottom": 2, "align": "right", "border": 1
         })
-        blank_cell_fmt = workbook.add_format({"border": 1})  # <-- NEW for empty cells
+        blank_cell_fmt = workbook.add_format({"border": 1})  # <-- for empty cells
 
-        # Report header
         worksheet.write(0, 0, inter_name, report_header_fmt)
         worksheet.write(1, 0, "STATEMENT OF ACCOUNT", report_header_fmt)
         worksheet.write(2, 0, f"AS OF {date_str.upper()}", report_header_fmt)
@@ -358,7 +358,6 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         data_start_row = startrow + 1
         rows, cols = sheet_df.shape
 
-        # Column widths
         for col_idx, col in enumerate(sheet_df.columns):
             max_len = max(sheet_df[col].astype(str).map(len).max(), len(col)) + 2
             if col == "Assured Name":
@@ -370,11 +369,9 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             else:
                 worksheet.set_column(col_idx, col_idx, max_len)
 
-        # Rewrite headers
         for col_idx, col in enumerate(sheet_df.columns):
             worksheet.write(startrow, col_idx, col, header_fmt)
 
-        # Data + subtotal
         for r in range(rows):
             for c in range(cols):
                 val = sheet_df.iat[r, c]
@@ -385,7 +382,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
                     worksheet.write_number(excel_row, c, float(val or 0), subtotal_fmt)
                 else:
                     if pd.isna(val) or (isinstance(val, str) and val.strip() == ""):
-                        worksheet.write_blank(excel_row, c, None, blank_cell_fmt)  # <-- keep borders
+                        worksheet.write_blank(excel_row, c, None, blank_cell_fmt)
                     elif col_name in MONEY_COLS:
                         worksheet.write_number(excel_row, c, float(val), money_cell_fmt)
                     else:
@@ -414,6 +411,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             target_folder = os.path.join(temp_dir, "AGENT", str(agent_folder_name))
         else:
             target_folder = temp_dir
+            unmapped_intermediaries.append(master)   # <--- log unmapped
         os.makedirs(target_folder, exist_ok=True)
 
         output_parts, subtotal_row_indexes, running_len = [], [], 0
@@ -459,7 +457,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
 
         prefix = make_prefix(safe_name)
         last_word = re.sub(r"[^A-Za-z0-9]", "", safe_name.split()[-1]) if safe_name else "X"
-        branch_val, branch_clean = str(branch).strip(), re.sub(r"[^A-Za-z0-9 ]", "", str(branch).strip())
+        branch_clean = re.sub(r"[^A-Za-z0-9 ]", "", str(branch).strip())
 
         if prefix not in used_prefixes:
             filename_prefix = prefix
@@ -477,6 +475,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             target_folder = os.path.join(temp_dir, "AGENT", str(agent_folder_name))
         else:
             target_folder = temp_dir
+            unmapped_intermediaries.append(safe_name)   # <--- log unmapped
         os.makedirs(target_folder, exist_ok=True)
 
         sheet_df = group_with_total
@@ -496,4 +495,12 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
                 arcname = os.path.relpath(file, temp_dir)
                 zipf.write(file, arcname)
 
-    return zip_filename, os.path.basename(zip_filename), temp_dir
+        # Add unmapped list into zip
+        unmapped_intermediaries = sorted(set(unmapped_intermediaries))
+        if unmapped_intermediaries:
+            unmapped_path = os.path.join(temp_dir, "unmapped_intermediaries.xlsx")
+            pd.DataFrame(unmapped_intermediaries, columns=["Unmapped Intermediary"]) \
+                .to_excel(unmapped_path, index=False)
+            zipf.write(unmapped_path, os.path.basename(unmapped_path))
+
+    return zip_filename, os.path.basename(zip_filename), temp_dir, unmapped_intermediaries

@@ -17,7 +17,7 @@ def soa_handler():
             flash("No valid SOA data found.")
             return redirect(url_for("soa.soa_handler"))
 
-        zip_path, zip_filename, temp_dir = result
+        zip_path, zip_filename, temp_dir, unmapped_intermediaries = result
 
         @after_this_request
         def cleanup(response):
