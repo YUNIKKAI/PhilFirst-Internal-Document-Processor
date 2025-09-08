@@ -7,8 +7,8 @@ from datetime import datetime
 from soa_direct.merge_and_agent import ACCOUNTS_TO_MERGE, INTERMEDIARY_TO_AGENT
 
 # Columns to drop
-UNNECESSARY_COLUMNS = [
-    "Issue Date", "Eff Date", "Ref Pol No.", "Assured No.", "Due Date",
+UNNECESSARY_COLUMNS = [#"Issue Date"
+    "Eff Date", "Ref Pol No.", "Assured No.", "Due Date",
     "Advance", "Current", "Over 30 Days", "Over 60 Days",
     "Over 90 Days", "Over 120 Days", "Over 180 Days", "Over 360 Days"
 ]
@@ -135,7 +135,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
 
     df_all = df_all.drop(columns=[col for col in UNNECESSARY_COLUMNS if col in df_all.columns])
     ordered_cols = [
-        "Branch", "Intermediary", "Policy No.", "Incept Date", "Aging",
+        "Branch", "Intermediary", "Policy No.", "Issue Date", "Incept Date", "Aging",
         "Assured Name", "Invoice No.", "Bill No.",
         "Premium Bal Due", "Tax Bal Due", "Balance Due", "Remarks"
     ]
