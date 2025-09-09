@@ -1,7 +1,7 @@
 from flask import Flask, render_template
 from config import DevelopmentConfig, ProductionConfig
 from dotenv import load_dotenv
-from renewal.routes import renewal_bp
+#from renewal.routes import renewal_bp
 from soa_direct.routes import soa_bp
 import os
 
@@ -19,7 +19,7 @@ def create_app():
         app.config.from_object(DevelopmentConfig)
 
     # Register Blueprints
-    app.register_blueprint(renewal_bp, url_prefix="/renewal")
+    #app.register_blueprint(renewal_bp, url_prefix="/renewal")
     app.register_blueprint(soa_bp, url_prefix="/soa_direct")
 
     # Root route

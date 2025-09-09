@@ -19,7 +19,7 @@ services:
       - web
     command: >
       http --domain=unnectareous-bernarda-pretelephonic.ngrok-free.app
-           --oauth=Microsoft
+           --oauth=microsoft
            --oauth-allow-domain=philfirst.com.ph
            web:8080
     environment:
