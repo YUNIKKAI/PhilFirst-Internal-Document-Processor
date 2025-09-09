@@ -98,10 +98,8 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
     excel_files = []
     today = pd.to_datetime(datetime.today().date())
 
-    # Date string for filenames
-    first_day_this_month = today.replace(day=1)
-    last_day_prev_month = first_day_this_month - pd.Timedelta(days=1)
-    date_str = last_day_prev_month.strftime("%B %d, %Y")
+    # Date string for filenames (use today's date)
+    date_str = today.strftime("%B %d, %Y")
 
     used_prefixes = {}
 
@@ -203,16 +201,14 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
                     else:
                         worksheet.write(excel_row, c, val, text_cell_fmt)
 
-    # === Pass 1: merged accounts ===
+        # === Pass 1: merged accounts (grouped by Branch, no branch label row) ===
     for master, aliases in merge_groups_map.items():
-        present_aliases = []
-        for alias in aliases:
-            sub_rows = df_all[df_all["Intermediary"].astype(str).str.strip() == alias]
-            if not sub_rows.empty:
-                present_aliases.append((alias, sub_rows))
-        if not present_aliases:
+        # Collect rows for all aliases
+        merged_rows = df_all[df_all["Intermediary"].astype(str).str.strip().isin(aliases)]
+        if merged_rows.empty:
             continue
 
+        # Prepare filename prefix (unique)
         prefix = make_prefix(master)
         if prefix not in used_prefixes:
             filename_prefix = prefix
@@ -228,13 +224,19 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             target_folder = temp_dir
         os.makedirs(target_folder, exist_ok=True)
 
+        # Now group inside this merged account by Branch
         output_parts, subtotal_row_indexes, running_len = [], [], 0
+
         def add_block(block_df: pd.DataFrame):
             nonlocal running_len
             if block_df.empty:
                 return
+
+            # Add block rows
             output_parts.append(block_df)
             running_len += len(block_df)
+
+            # Add subtotal row
             subtotal = {col: "" for col in block_df.columns}
             for mcol in MONEY_COLS:
                 subtotal[mcol] = block_df[mcol].sum()
@@ -243,10 +245,14 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             running_len += 1
             subtotal_row_indexes.append(running_len - 1)
 
-        for idx, (_alias, sub_rows) in enumerate(present_aliases):
-            add_block(sub_rows)
-            if idx < len(present_aliases) - 1:
-                blanks = pd.DataFrame([{col: "" for col in sub_rows.columns} for _ in range(2)])
+        # Loop by branch inside merged intermediaries
+        branch_groups = list(merged_rows.groupby("Branch"))
+        for idx, (branch_val, branch_group) in enumerate(branch_groups):
+            add_block(branch_group)
+
+            # Add blank rows ONLY between branches, not at the end
+            if idx < len(branch_groups) - 1:
+                blanks = pd.DataFrame([{col: "" for col in branch_group.columns} for _ in range(2)])
                 output_parts.append(blanks)
                 running_len += 2
 

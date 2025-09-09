@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    container_name: my-webapp
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PORT=8080
+    restart: always
+
+  ngrok:
+    image: ngrok/ngrok:latest 
+    container_name: ngrok
+    depends_on:
+      - web
+    command: >
+      http --domain=unnectareous-bernarda-pretelephonic.ngrok-free.app
+           --oauth=Microsoft
+           --oauth-allow-domain=philfirst.com.ph
+           web:8080
+    environment:
+      NGROK_AUTHTOKEN: 32RVRq8TS5LHFhYJnhNUkhD0ZL2_7qVC8fc57o13VgEtGo6eH
+    ports:
+      - "4040:4040"   # ngrok web UI
+    restart: always
