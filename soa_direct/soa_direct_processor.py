@@ -8,7 +8,7 @@ from soa_direct.merge_and_agent import ACCOUNTS_TO_MERGE, INTERMEDIARY_TO_AGENT
 
 # Columns to drop
 UNNECESSARY_COLUMNS = [#"Issue Date"
-    "Eff Date", "Ref Pol No.", "Assured No.", "Due Date",
+    "Eff Date", "Assured No.", "Due Date",
     "Advance", "Current", "Over 30 Days", "Over 60 Days",
     "Over 90 Days", "Over 120 Days", "Over 180 Days", "Over 360 Days"
 ]
@@ -16,7 +16,7 @@ MONEY_COLS = ["Premium Bal Due", "Tax Bal Due", "Balance Due"]
 
 def aging_category(days: int) -> str:
     if days < 90:
-        return "Within the 90days CTE"
+        return "Within 90days-Credit Term"
     elif days <= 120:
         return "Over 90 days"
     elif days <= 180:
@@ -24,6 +24,15 @@ def aging_category(days: int) -> str:
     elif days <= 360:
         return "Over 180 days"
     return "Over 360 days"
+
+# Define all aging categories in order
+ALL_AGING_CATEGORIES = [
+    "Within 90days-Credit Term",
+    "Over 90 days",
+    "Over 120 days",
+    "Over 180 days",
+    "Over 360 days"
+]
 
 def make_prefix(name: str) -> str:
     """Build filename prefix from intermediary name."""
@@ -60,7 +69,6 @@ def _build_merge_maps(merge_groups_from_arg):
     - merge_groups: dict master -> [aliases...] (preserves order)
     - alias_to_master: dict alias_exact_string -> master (exact match only)
     """
-    # prefer arg if provided, else use imported ACCOUNTS_TO_MERGE
     source = merge_groups_from_arg if merge_groups_from_arg is not None else ACCOUNTS_TO_MERGE
 
     if isinstance(source, dict):
@@ -85,10 +93,8 @@ def _is_blank_df_one_row_all_empty(df: pd.DataFrame) -> bool:
     """Detect if df is a single-row DataFrame where every cell is empty string or NaN."""
     if df.shape[0] != 1:
         return False
-    # Convert to str and strip — treat '', 'nan', 'None' as empty
     as_str = df.fillna("").astype(str).applymap(lambda v: v.strip())
     return (as_str == "").all().all()
-
 
 def extract_soa_direct(files, merge_groups=None, agent_folders=None):
     agent_folders = agent_folders or INTERMEDIARY_TO_AGENT
@@ -97,13 +103,10 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
     temp_dir = tempfile.mkdtemp()
     excel_files = []
     today = pd.to_datetime(datetime.today().date())
-
-    # Date string for filenames (use today's date)
     date_str = today.strftime("%B %d, %Y")
 
     used_prefixes = {}
 
-    # Load CSV files
     combined_rows = []
     for file in files:
         if not file or getattr(file, "filename", "") == "":
@@ -133,7 +136,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
 
     df_all = df_all.drop(columns=[col for col in UNNECESSARY_COLUMNS if col in df_all.columns])
     ordered_cols = [
-        "Branch", "Intermediary", "Policy No.", "Issue Date", "Incept Date", "Aging",
+        "Branch", "Intermediary", "Policy No.", "Issue Date", "Incept Date", "Aging", "Ref Pol No.",
         "Assured Name", "Invoice No.", "Bill No.",
         "Premium Bal Due", "Tax Bal Due", "Balance Due", "Remarks"
     ]
@@ -148,8 +151,11 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             )
             df_all[col] = pd.to_numeric(df_all[col], errors="coerce").fillna(0)
 
+    # ✅ SORT by Assured Name then Incept Date
+    df_all = df_all.sort_values(by=["Assured Name", "Incept Date"], ascending=[True, True]).reset_index(drop=True)
+
     # --- formatting helper ---
-    def apply_formats(workbook, worksheet, sheet_df, subtotal_rows, inter_name):
+    def apply_formats(workbook, worksheet, sheet_df, subtotal_rows, aging_summary_rows, inter_name, is_merged=False):
         report_header_fmt = workbook.add_format({"bold": True, "align": "left", "font_size": 12})
         header_fmt = workbook.add_format({"bold": True, "border": 1, "align": "center"})
         text_cell_fmt = workbook.add_format({"border": 1, "align": "left"})
@@ -157,7 +163,16 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         subtotal_fmt = workbook.add_format({
             "num_format": "#,##0.00", "bold": True, "bottom": 2, "align": "right", "border": 1
         })
-        blank_cell_fmt = workbook.add_format({"border": 1})  # <-- NEW for empty cells
+        blank_cell_fmt = workbook.add_format({"border": 1})
+        aging_text_fmt = workbook.add_format({"bold": True, "align": "left"})
+        aging_money_fmt = workbook.add_format({"num_format": "#,##0.00", "bold": True, "align": "right"})
+        aging_dash_fmt = workbook.add_format({"bold": True, "align": "right"})
+        aging_total_text_fmt = workbook.add_format({"bold": True, "align": "left", "top": 1, "bottom": 2})
+        aging_total_money_fmt = workbook.add_format({"num_format": "#,##0.00", "bold": True, "align": "right", "top": 1, "bottom": 2})
+        no_border_fmt = workbook.add_format({})
+        footer_text_fmt = workbook.add_format({"align": "left", "valign": "top"})
+        footer_bold_fmt = workbook.add_format({"align": "left", "valign": "top", "bold": True})
+        footer_italic_fmt = workbook.add_format({"align": "left", "valign": "top", "italic": True})
 
         # Report header
         worksheet.write(0, 0, inter_name, report_header_fmt)
@@ -184,31 +199,110 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         for col_idx, col in enumerate(sheet_df.columns):
             worksheet.write(startrow, col_idx, col, header_fmt)
 
-        # Data + subtotal
+        # Data + subtotal + aging summary
         for r in range(rows):
             for c in range(cols):
                 val = sheet_df.iat[r, c]
                 excel_row = data_start_row + r
                 col_name = sheet_df.columns[c]
 
+                # Check if this row is a subtotal row
                 if r in subtotal_rows and col_name in MONEY_COLS:
                     worksheet.write_number(excel_row, c, float(val or 0), subtotal_fmt)
+                # Check if this row is part of aging summary
+                elif r in aging_summary_rows:
+                    aging_info = aging_summary_rows[r]
+                    if aging_info['type'] == 'blank':
+                        worksheet.write_blank(excel_row, c, None, no_border_fmt)
+                    elif aging_info['type'] == 'detail':
+                        if c == 0:
+                            worksheet.write(excel_row, c, val, aging_text_fmt)
+                        elif c == 1:
+                            # Check if value is "-" (dash for zero/missing categories)
+                            if val == "-":
+                                worksheet.write(excel_row, c, val, aging_dash_fmt)
+                            else:
+                                worksheet.write_number(excel_row, c, float(val or 0), aging_money_fmt)
+                        else:
+                            worksheet.write_blank(excel_row, c, None, no_border_fmt)
+                    elif aging_info['type'] == 'total':
+                        if c == 0:
+                            worksheet.write(excel_row, c, "Total", aging_total_text_fmt)
+                        elif c == 1:
+                            worksheet.write_number(excel_row, c, float(val or 0), aging_total_money_fmt)
+                        else:
+                            worksheet.write_blank(excel_row, c, None, no_border_fmt)
+                    elif aging_info['type'] == 'spacing':
+                        worksheet.write_blank(excel_row, c, None, no_border_fmt)
                 else:
                     if pd.isna(val) or (isinstance(val, str) and val.strip() == ""):
-                        worksheet.write_blank(excel_row, c, None, blank_cell_fmt)  # <-- keep borders
+                        worksheet.write_blank(excel_row, c, None, blank_cell_fmt)
                     elif col_name in MONEY_COLS:
                         worksheet.write_number(excel_row, c, float(val), money_cell_fmt)
                     else:
                         worksheet.write(excel_row, c, val, text_cell_fmt)
 
-        # === Pass 1: merged accounts (grouped by Branch, no branch label row) ===
+        # === Footer with payment instructions ===
+        last_data_row = data_start_row + rows
+        footer_start_row = last_data_row + 3
+        
+        # Lines that should be italicized
+        italic_lines = {
+            "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
+            "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
+            "For your convenience, you may pay your insurance premium using the following payment channels:"
+        }
+        
+        bold_lines = {
+            "1. BDO Bills Payment",
+            "a. BDO Mobile Application",
+            "b. Over the Counter",
+            "2. BPI Bills Payment",
+            "a. BPI Mobile Application or BPI Online Banking",
+            "b. Over the Counter using BPI Express Assist (BEA) Machine",
+            "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC"
+        }
+        
+        footer_lines = [
+            "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
+            "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
+            "For your convenience, you may pay your insurance premium using the following payment channels:",
+            "",
+            "1. BDO Bills Payment",
+            "a. BDO Mobile Application",
+            "   i. Biller: Philippines First Insurance Co., Inc.",
+            "   ii. Reference Number: Policy Invoice Number (Bill Number)",
+            "b. Over the Counter",
+            "   i. Company Name: Philippines First Insurance Co., Inc.",
+            "   ii. Subscriber Name: Assured Name",
+            "   iii. Subscriber Account Number: Billing Invoice Number",
+            "",
+            "2. BPI Bills Payment",
+            "a. BPI Mobile Application or BPI Online Banking",
+            "   i. Biller: Philippines First Insurance Co or PFSINC(for short name)",
+            "   ii. Reference Number: Billing Invoice Number",
+            "b. Over the Counter using BPI Express Assist (BEA) Machine",
+            "   i. Transaction: Bills Payment",
+            "   ii. Merchant: Other Merchant",
+            "   iii. Reference Number: Billing Invoice Number",
+            "",
+            "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        ]
+        for i, line in enumerate(footer_lines):
+            if line in italic_lines:
+                fmt = footer_italic_fmt
+            elif line in bold_lines:
+                fmt = footer_bold_fmt
+            else:
+                fmt = footer_text_fmt
+            worksheet.write(footer_start_row + i, 0, line, fmt)
+
+    # === Pass 1: merged accounts ===
     for master, aliases in merge_groups_map.items():
-        # Collect rows for all aliases
         merged_rows = df_all[df_all["Intermediary"].astype(str).str.strip().isin(aliases)]
         if merged_rows.empty:
             continue
 
-        # Prepare filename prefix (unique)
         prefix = make_prefix(master)
         if prefix not in used_prefixes:
             filename_prefix = prefix
@@ -224,37 +318,69 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             target_folder = temp_dir
         os.makedirs(target_folder, exist_ok=True)
 
-        # Now group inside this merged account by Branch
-        output_parts, subtotal_row_indexes, running_len = [], [], 0
+        output_parts, subtotal_row_indexes, aging_summary_row_indexes, running_len = [], [], {}, 0
 
-        def add_block(block_df: pd.DataFrame):
+        def add_block(block_df: pd.DataFrame, is_last_branch=False):
             nonlocal running_len
             if block_df.empty:
                 return
-
-            # Add block rows
+            
             output_parts.append(block_df)
             running_len += len(block_df)
-
+            
             # Add subtotal row
             subtotal = {col: "" for col in block_df.columns}
             for mcol in MONEY_COLS:
                 subtotal[mcol] = block_df[mcol].sum()
             subtotal_df = pd.DataFrame([subtotal])
             output_parts.append(subtotal_df)
+            subtotal_row_indexes.append(running_len)
             running_len += 1
-            subtotal_row_indexes.append(running_len - 1)
+            
+            # Add one blank row before aging summary
+            blank_row = pd.DataFrame([{col: "" for col in block_df.columns}])
+            output_parts.append(blank_row)
+            aging_summary_row_indexes[running_len] = {'type': 'blank'}
+            running_len += 1
+            
+            # Calculate aging summary for this branch - include all categories
+            aging_summary = block_df.groupby("Aging")["Balance Due"].sum().reset_index()
+            aging_dict = dict(zip(aging_summary["Aging"], aging_summary["Balance Due"]))
+            
+            # Add aging detail rows for ALL categories (no header)
+            for aging_cat in ALL_AGING_CATEGORIES:
+                detail_row = {col: "" for col in block_df.columns}
+                detail_row[block_df.columns[0]] = aging_cat
+                if aging_cat in aging_dict:
+                    detail_row[block_df.columns[1]] = aging_dict[aging_cat] if len(block_df.columns) > 1 else ""
+                else:
+                    detail_row[block_df.columns[1]] = "-"  # Display dash for missing categories
+                output_parts.append(pd.DataFrame([detail_row]))
+                aging_summary_row_indexes[running_len] = {'type': 'detail'}
+                running_len += 1
+            
+            # Add total row
+            total_row = {col: "" for col in block_df.columns}
+            total_row[block_df.columns[0]] = "Total"
+            # Sum only the numeric values (exclude "-")
+            total_sum = sum(aging_dict.values())
+            total_row[block_df.columns[1]] = total_sum if len(block_df.columns) > 1 else ""
+            output_parts.append(pd.DataFrame([total_row]))
+            aging_summary_row_indexes[running_len] = {'type': 'total'}
+            running_len += 1
+            
+            # Add 2 no-border spacing rows after aging summary (if not last branch)
+            if not is_last_branch:
+                for _ in range(2):
+                    spacing_row = pd.DataFrame([{col: "" for col in block_df.columns}])
+                    output_parts.append(spacing_row)
+                    aging_summary_row_indexes[running_len] = {'type': 'spacing'}
+                    running_len += 1
 
-        # Loop by branch inside merged intermediaries
         branch_groups = list(merged_rows.groupby("Branch"))
         for idx, (branch_val, branch_group) in enumerate(branch_groups):
-            add_block(branch_group)
-
-            # Add blank rows ONLY between branches, not at the end
-            if idx < len(branch_groups) - 1:
-                blanks = pd.DataFrame([{col: "" for col in branch_group.columns} for _ in range(2)])
-                output_parts.append(blanks)
-                running_len += 2
+            is_last = (idx == len(branch_groups) - 1)
+            add_block(branch_group, is_last_branch=is_last)
 
         sheet_df = pd.concat(output_parts, ignore_index=True)
         excel_filename = os.path.join(target_folder, f"{filename_prefix}_SOA as of {date_str}.xlsx")
@@ -262,7 +388,7 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
 
         with pd.ExcelWriter(excel_filename, engine="xlsxwriter") as writer:
             sheet_df.to_excel(writer, index=False, sheet_name="SoA", startrow=4)
-            apply_formats(writer.book, writer.sheets["SoA"], sheet_df, subtotal_row_indexes, master)
+            apply_formats(writer.book, writer.sheets["SoA"], sheet_df, subtotal_row_indexes, aging_summary_row_indexes, master, is_merged=True)
 
     # === Pass 2: non-merged ===
     for (branch, name), group in df_all.groupby(["Branch", "Intermediary"]):
@@ -270,10 +396,57 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
         if safe_name in alias_to_master:
             continue
 
+        # Build sheet with data, subtotal, blank, aging summary
+        output_parts = []
+        subtotal_row_indexes = []
+        aging_summary_row_indexes = {}
+        running_len = 0
+        
+        # Add data
+        output_parts.append(group)
+        running_len += len(group)
+        
+        # Add subtotal
         totals = {col: "" for col in group.columns}
         for mcol in MONEY_COLS:
             totals[mcol] = group[mcol].sum()
-        group_with_total = pd.concat([group, pd.DataFrame([totals])], ignore_index=True)
+        output_parts.append(pd.DataFrame([totals]))
+        subtotal_row_indexes.append(running_len)
+        running_len += 1
+        
+        # Add one blank row before aging summary
+        blank_row = pd.DataFrame([{col: "" for col in group.columns}])
+        output_parts.append(blank_row)
+        aging_summary_row_indexes[running_len] = {'type': 'blank'}
+        running_len += 1
+        
+        # Calculate aging summary - include all categories
+        aging_summary = group.groupby("Aging")["Balance Due"].sum().reset_index()
+        aging_dict = dict(zip(aging_summary["Aging"], aging_summary["Balance Due"]))
+        
+        # Add aging detail rows for ALL categories (no header)
+        for aging_cat in ALL_AGING_CATEGORIES:
+            detail_row = {col: "" for col in group.columns}
+            detail_row[group.columns[0]] = aging_cat
+            if aging_cat in aging_dict:
+                detail_row[group.columns[1]] = aging_dict[aging_cat] if len(group.columns) > 1 else ""
+            else:
+                detail_row[group.columns[1]] = "-"  # Display dash for missing categories
+            output_parts.append(pd.DataFrame([detail_row]))
+            aging_summary_row_indexes[running_len] = {'type': 'detail'}
+            running_len += 1
+        
+        # Add total row
+        total_row = {col: "" for col in group.columns}
+        total_row[group.columns[0]] = "Total"
+        # Sum only the numeric values (exclude "-")
+        total_sum = sum(aging_dict.values())
+        total_row[group.columns[1]] = total_sum if len(group.columns) > 1 else ""
+        output_parts.append(pd.DataFrame([total_row]))
+        aging_summary_row_indexes[running_len] = {'type': 'total'}
+        running_len += 1
+        
+        sheet_df = pd.concat(output_parts, ignore_index=True)
 
         prefix = make_prefix(safe_name)
         last_word = re.sub(r"[^A-Za-z0-9]", "", safe_name.split()[-1]) if safe_name else "X"
@@ -297,14 +470,12 @@ def extract_soa_direct(files, merge_groups=None, agent_folders=None):
             target_folder = temp_dir
         os.makedirs(target_folder, exist_ok=True)
 
-        sheet_df = group_with_total
-        subtotal_row_indexes = [len(sheet_df) - 1]
         excel_filename = os.path.join(target_folder, f"{filename_prefix}_SOA as of {date_str}.xlsx")
         excel_files.append(excel_filename)
 
         with pd.ExcelWriter(excel_filename, engine="xlsxwriter") as writer:
             sheet_df.to_excel(writer, index=False, sheet_name="SoA", startrow=4)
-            apply_formats(writer.book, writer.sheets["SoA"], sheet_df, subtotal_row_indexes, safe_name)
+            apply_formats(writer.book, writer.sheets["SoA"], sheet_df, subtotal_row_indexes, aging_summary_row_indexes, safe_name, is_merged=False)
 
     # Build zip
     zip_filename = os.path.join(temp_dir, f"SoA as of {date_str}.zip")
