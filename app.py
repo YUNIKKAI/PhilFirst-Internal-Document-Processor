@@ -3,6 +3,7 @@ from config import DevelopmentConfig, ProductionConfig
 from dotenv import load_dotenv
 #from renewal.routes import renewal_bp
 from soa_direct.routes import soa_bp
+from soa_reinsurer.routes import soa_ri_bp
 import os
 
 def create_app():
@@ -21,6 +22,7 @@ def create_app():
     # Register Blueprints
     #app.register_blueprint(renewal_bp, url_prefix="/renewal")
     app.register_blueprint(soa_bp, url_prefix="/soa_direct")
+    app.register_blueprint(soa_ri_bp, url_prefix='/soa_reinsurer')
 
     # Root route
     @app.route("/")
