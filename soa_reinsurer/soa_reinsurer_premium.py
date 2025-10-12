@@ -13,12 +13,6 @@ PREMIUM_COLUMNS = [
     'Due Date', 'Assured', 'Assured Policy No.', 'Binder No.', 'Balance Due', 'Aging', 'REMARKS'
 ]
 
-CASHCALL_COLUMNS = [
-    'Branch', 'Line', 'Reinsurer', 'Assured', 'Policy Number',
-    'Claim Number', 'FLA Number', 'FLA Date', 'Loss Date', 'Aging',
-    'Total Share', 'Total Payments', 'Total Amount Due'
-]
-
 # Column width mappings (in pixels converted to Excel width units)
 COLUMN_WIDTHS = {
     'Reinsurer': 17.875,
@@ -66,35 +60,6 @@ def determine_aging_premium(row):
                 continue
     
     return ''
-
-def calculate_aging_cashcall(fla_date):
-    """Calculate aging based on FLA Date for cash call"""
-    try:
-        if pd.isna(fla_date):
-            return 'CURRENT'
-        
-        if isinstance(fla_date, str):
-            fla_date = pd.to_datetime(fla_date)
-        
-        today = datetime.now()
-        days_diff = (today - fla_date).days
-        
-        if days_diff <= 30:
-            return 'CURRENT'
-        elif days_diff <= 60:
-            return 'Over 30 days'
-        elif days_diff <= 90:
-            return 'Over 60 days'
-        elif days_diff <= 120:
-            return 'Over 90 days'
-        elif days_diff <= 180:
-            return 'Over 120 days'
-        elif days_diff <= 360:
-            return 'Over 180 days'
-        else:
-            return 'Over 360 days'
-    except:
-        return 'CURRENT'
 
 def apply_premium_formatting_merged(file_path, reinsurer_groups):
     """Apply formatting to merged premium Excel file with separate sections per reinsurer
@@ -679,89 +644,12 @@ def process_premium(files):
     
     return output_dfs
 
-def process_cashcall(files):
-    """Process cashcall files (requires 2 files: bulk and summary)"""
-    print("Processing Cash Call files...")
-    
-    bulk_file = None
-    summary_file = None
-    
-    for file in files:
-        filename_lower = file.filename.lower()
-        if 'bulk' in filename_lower:
-            bulk_file = file
-        elif 'summary' in filename_lower:
-            summary_file = file
-    
-    if not bulk_file or not summary_file:
-        bulk_file = files[0]
-        summary_file = files[1] if len(files) > 1 else None
-    
-    if not summary_file:
-        raise ValueError("Cash Call requires 2 files: bulk data and summary with loss date")
-    
-    df_bulk = pd.read_csv(bulk_file)
-    df_details = pd.read_csv(summary_file)
-    
-    df_bulk_copy = df_bulk.copy()
-    df_details_copy = df_details.copy()
-    
-    df_bulk_copy['match_reinsurer'] = df_bulk_copy['Reinsurer'].astype(str).str.strip().str.upper()
-    df_bulk_copy['match_policy'] = df_bulk_copy['Policy Number'].astype(str).str.strip().str.upper()
-    df_bulk_copy['match_claim'] = df_bulk_copy['Claim Number'].astype(str).str.strip().str.upper()
-    df_bulk_copy['match_fla_date'] = pd.to_datetime(df_bulk_copy['FLA Date'], errors='coerce')
-    
-    df_details_copy['match_reinsurer'] = df_details_copy['REINSURER'].astype(str).str.strip().str.upper()
-    df_details_copy['match_policy'] = df_details_copy['ASSURED POLICY NO'].astype(str).str.strip().str.upper()
-    df_details_copy['match_claim'] = df_details_copy['CLAIM NO'].astype(str).str.strip().str.upper()
-    df_details_copy['match_fla_date'] = pd.to_datetime(df_details_copy['FLA DATE'], errors='coerce')
-    
-    merged_df = df_bulk_copy.merge(
-        df_details_copy[['match_reinsurer', 'match_policy', 'match_claim', 'match_fla_date', 'LOSS DATE']],
-        on=['match_reinsurer', 'match_policy', 'match_claim', 'match_fla_date'],
-        how='left'
-    )
-    
-    df_bulk_copy['Loss Date'] = merged_df['LOSS DATE']
-    df_bulk_copy['Aging'] = df_bulk_copy['FLA Date'].apply(calculate_aging_cashcall)
-    
-    available_columns = [col for col in CASHCALL_COLUMNS if col in df_bulk_copy.columns]
-    df_processed = df_bulk_copy[available_columns].copy()
-    
-    if 'Total Amount Due' in df_processed.columns:
-        df_processed['Total Amount Due'] = pd.to_numeric(
-            df_processed['Total Amount Due'].astype(str).str.replace(',', ''), 
-            errors='coerce'
-        )
-    
-    output_dfs = []
-    if 'Reinsurer' in df_processed.columns:
-        reinsurers = df_processed['Reinsurer'].dropna().unique()
-        
-        for reinsurer in reinsurers:
-            reinsurer_df = df_processed[df_processed['Reinsurer'] == reinsurer].copy()
-            
-            if 'Total Amount Due' in reinsurer_df.columns:
-                total_amount = reinsurer_df['Total Amount Due'].sum()
-                
-                total_row = pd.DataFrame({col: [''] for col in reinsurer_df.columns})
-                total_row['Reinsurer'] = f'TOTAL - {reinsurer}'
-                total_row['Total Amount Due'] = total_amount
-                
-                reinsurer_with_total = pd.concat([reinsurer_df, total_row], ignore_index=True)
-                output_dfs.append((reinsurer, reinsurer_with_total, None, False))
-            else:
-                output_dfs.append((reinsurer, reinsurer_df, None, False))
-    
-    return output_dfs
-
-def extract_soa_reinsurer(files, file_type=None):
+def extract_soa_reinsurer_premium(files):
     """
-    Main function to process SOA for reinsurer
+    Process SOA for premium reinsurer
     
     Args:
         files: List of uploaded files
-        file_type: 'premium' or 'cash-call'
     
     Returns:
         Tuple of (zip_path, zip_filename, temp_dir)
@@ -769,71 +657,48 @@ def extract_soa_reinsurer(files, file_type=None):
     if not files or all(f.filename == "" for f in files):
         return None
     
-    if not file_type:
-        return None
+    if len(files) < 1:
+        raise ValueError("Premium requires at least 1 file")
     
     temp_dir = tempfile.mkdtemp()
     today = datetime.now().strftime("%b %d, %Y")  # e.g., "Jan 15, 2025"
     
     try:
-        if file_type == 'premium':
-            if len(files) < 1:
-                raise ValueError("Premium requires at least 1 file")
-            output_dfs = process_premium(files)
-        elif file_type == 'cash-call':
-            if len(files) < 2:
-                raise ValueError("Cash Call requires 2 files (bulk and summary)")
-            output_dfs = process_cashcall(files)
-        else:
-            raise ValueError(f"Invalid file type: {file_type}")
-        
+        output_dfs = process_premium(files)
         excel_files = []
         
         for item in output_dfs:
-            if file_type == 'premium':
-                if len(item) == 3:
-                    filename, data, is_merged = item
+            if len(item) == 3:
+                filename, data, is_merged = item
+                
+                if is_merged:
+                    # data is a list of (reinsurer_name, df, address) tuples
+                    clean_name = make_filename_safe(filename)
+                    file_name = f"SOA {clean_name} AS OF {today}.xlsx"
+                    file_path = os.path.join(temp_dir, file_name)
                     
-                    if is_merged:
-                        # data is a list of (reinsurer_name, df, address) tuples
-                        clean_name = make_filename_safe(filename)
-                        file_name = f"SOA {clean_name} AS OF {today}.xlsx"
-                        file_path = os.path.join(temp_dir, file_name)
-                        
-                        # Create initial workbook with merged sections
-                        initial_df = pd.DataFrame()
-                        initial_df.to_excel(file_path, index=False, engine='openpyxl')
-                        
-                        # Apply merged formatting with all sections
-                        apply_premium_formatting_merged(file_path, data)
-                        
-                        excel_files.append(file_path)
-                        print(f"✓ Created: {file_name} (Merged - {len(data)} reinsurers)")
-                    else:
-                        # Single reinsurer
-                        clean_name = make_filename_safe(filename)
-                        file_name = f"SOA {clean_name} AS OF {today}.xlsx"
-                        file_path = os.path.join(temp_dir, file_name)
-                        
-                        data.to_excel(file_path, index=False, engine='openpyxl')
-                        apply_premium_formatting(file_path, filename, is_merged=False)
-                        
-                        excel_files.append(file_path)
-                        print(f"✓ Created: {file_name}")
-            else:
-                # Cash call processing
-                reinsurer, reinsurer_df, _, _ = item
-                clean_name = make_filename_safe(reinsurer)
-                file_name = f"SOA {clean_name} AS OF {today}.xlsx"
-                file_path = os.path.join(temp_dir, file_name)
-                
-                reinsurer_df.to_excel(file_path, index=False, engine='openpyxl')
-                
-                excel_files.append(file_path)
-                print(f"✓ Created: {file_name}")
+                    # Create initial workbook with merged sections
+                    initial_df = pd.DataFrame()
+                    initial_df.to_excel(file_path, index=False, engine='openpyxl')
+                    
+                    # Apply merged formatting with all sections
+                    apply_premium_formatting_merged(file_path, data)
+                    
+                    excel_files.append(file_path)
+                    print(f"✓ Created: {file_name} (Merged - {len(data)} reinsurers)")
+                else:
+                    # Single reinsurer
+                    clean_name = make_filename_safe(filename)
+                    file_name = f"SOA {clean_name} AS OF {today}.xlsx"
+                    file_path = os.path.join(temp_dir, file_name)
+                    
+                    data.to_excel(file_path, index=False, engine='openpyxl')
+                    apply_premium_formatting(file_path, filename, is_merged=False)
+                    
+                    excel_files.append(file_path)
+                    print(f"✓ Created: {file_name}")
         
-        zip_type = "PREMIUM" if file_type == 'premium' else "CASH CALL"
-        zip_filename = f"SOA {zip_type} AS OF {today}.zip"
+        zip_filename = f"SOA PREMIUM AS OF {today}.zip"
         zip_path = os.path.join(temp_dir, zip_filename)
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:

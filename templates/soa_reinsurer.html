@@ -79,11 +79,57 @@
       color: white;
       border-color: transparent;
     }
-    .type-btn.cash-call.active {
-      background: linear-gradient(135deg, #04049c 0%, #137b04 100%);
+    .upload-section {
+      display: none;
     }
-    .type-btn.premium.active {
-      background: linear-gradient(135deg, #137b04 0%, #04049c 100%);
+    .upload-section.active {
+      display: block;
+    }
+    .dual-upload-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .upload-box {
+      border: 2px dashed #137b04;
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      background: #f8fffe;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .upload-box:hover,
+    .upload-box.dragover {
+      border-color: #04049c;
+      background: #f0f0ff;
+      transform: scale(1.02);
+    }
+    .upload-box.has-file {
+      border-color: #137b04;
+      background: #e8f5e9;
+    }
+    .upload-box-title {
+      font-weight: 600;
+      color: #137b04;
+      margin-bottom: 12px;
+      font-size: 0.95rem;
+    }
+    .upload-icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+      color: #137b04;
+    }
+    .upload-text {
+      font-size: 0.9rem;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .upload-subtext {
+      color: #666;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
     }
     .upload-area {
       border: 2px dashed #137b04;
@@ -100,35 +146,13 @@
       background: #f0f0ff;
       transform: scale(1.02);
     }
-    .upload-area.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      pointer-events: none;
-    }
-    .upload-icon {
-      font-size: 3rem;
-      margin-bottom: 16px;
-      color: #137b04;
-    }
-    .upload-text { font-size: 1.1rem; color: #333; margin-bottom: 16px; }
-    .upload-subtext { color: #666; margin-bottom: 20px; }
-    .file-requirement {
-      background: #fff3cd;
-      color: #856404;
-      padding: 12px;
-      border-radius: 8px;
-      margin-bottom: 16px;
-      font-size: 0.9rem;
-      display: none;
-    }
-    .file-requirement.show { display: block; }
     input[type="file"] { display: none; }
     .btn {
       display: inline-block;
-      padding: 12px 28px;
+      padding: 10px 20px;
       border-radius: 8px;
       font-weight: 500;
-      font-size: 1rem;
+      font-size: 0.9rem;
       text-decoration: none;
       border: none;
       cursor: pointer;
@@ -146,6 +170,8 @@
       background: #f8f9fa;
       color: #333;
       border: 2px solid #dee2e6;
+      font-size: 0.85rem;
+      padding: 8px 16px;
     }
     .btn-secondary:hover { background: #e9ecef; }
     .submit-btn {
@@ -159,23 +185,27 @@
       cursor: not-allowed;
       transform: none;
     }
-    .file-list {
-      margin-top: 20px;
-      padding: 0;
-      list-style: none;
+    .file-info {
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: #e8f5e9;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #2e7d32;
+      display: none;
     }
-    .file-item {
-      background: #f8f9fa;
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.9rem;
+    .file-info.show {
+      display: block;
     }
-    .file-name { color: #137b04; font-weight: 500; }
-    .file-size { color: #666; font-size: 0.8rem; }
+    .file-name {
+      font-weight: 600;
+      word-break: break-word;
+    }
+    .file-size {
+      color: #666;
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
     .message {
       padding: 12px 16px;
       border-radius: 8px;
@@ -207,12 +237,10 @@
     .processing .loading-spinner { display: inline-block; }
     @media (max-width: 768px) {
       .container { margin: 10px; }
-      .logo-section { padding: 20px 16px 0 16px; }
-      .logo { max-width: 150px; max-height: 60px; }
-      .header { padding: 24px 20px; }
-      .header h1 { font-size: 1.5rem; }
-      .content { padding: 24px 20px; }
-      .upload-area { padding: 30px 15px; }
+      .dual-upload-container {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
       .button-group { flex-direction: column; gap: 12px; }
     }
   </style>
@@ -231,22 +259,48 @@
     <form id="upload-form" method="POST" enctype="multipart/form-data" action="{{ url_for('soa_reinsurer.soa_handler') }}">
       <div class="content">
         <div class="button-group">
-          <button type="button" class="type-btn cash-call" data-type="cash-call">Cash Call</button>
+          <button type="button" class="type-btn cash-call active" data-type="cash-call">Cash Call</button>
           <button type="button" class="type-btn premium" data-type="premium">Premium</button>
         </div>
         
-        <input type="hidden" name="type" id="type-input" value="">
-        <div class="file-requirement" id="file-requirement"></div>
+        <input type="hidden" name="type" id="type-input" value="cash-call">
         
-        <div class="upload-area disabled" id="upload-area">
-          <div class="upload-icon">📊</div>
-          <div class="upload-text">Drop your CSV files here</div>
-          <div class="upload-subtext">or click to browse</div>
-          <label for="file-input" class="btn btn-secondary">Choose Files</label>
-          <input type="file" id="file-input" name="files" multiple accept=".csv">
+        <!-- Cash Call Upload Section -->
+        <div class="upload-section active" id="cash-call-section">
+          <div class="dual-upload-container">
+            <div class="upload-box" id="bulk-upload-box">
+              <div class="upload-box-title">📋 Cash Call Bulk</div>
+              <div class="upload-icon">📊</div>
+              <div class="upload-text">Drop file here</div>
+              <div class="upload-subtext">or click to browse</div>
+              <label for="bulk-file-input" class="btn btn-secondary">Choose File</label>
+              <input type="file" id="bulk-file-input" name="bulk_file" accept=".csv">
+              <div class="file-info" id="bulk-file-info"></div>
+            </div>
+            
+            <div class="upload-box" id="summary-upload-box">
+              <div class="upload-box-title">📝 Cash Call Summary</div>
+              <div class="upload-icon">📊</div>
+              <div class="upload-text">Drop file here</div>
+              <div class="upload-subtext">or click to browse</div>
+              <label for="summary-file-input" class="btn btn-secondary">Choose File</label>
+              <input type="file" id="summary-file-input" name="summary_file" accept=".csv">
+              <div class="file-info" id="summary-file-info"></div>
+            </div>
+          </div>
         </div>
         
-        <ul class="file-list" id="file-list"></ul>
+        <!-- Premium Upload Section -->
+        <div class="upload-section" id="premium-section">
+          <div class="upload-area" id="premium-upload-area">
+            <div class="upload-icon">📊</div>
+            <div class="upload-text">Drop your CSV files here</div>
+            <div class="upload-subtext">or click to browse (multiple files allowed)</div>
+            <label for="premium-file-input" class="btn btn-secondary">Choose Files</label>
+            <input type="file" id="premium-file-input" name="premium_files" multiple accept=".csv">
+          </div>
+          <div id="premium-file-list"></div>
+        </div>
         
         <div id="messages">
           {% with messages = get_flashed_messages() %}
@@ -266,27 +320,37 @@
     </form>
     
     <div class="footer">
-      <p>Supported format: CSV | Maximum file size: 16MB | Maximum total size: 64MB</p>
-      <p style="margin-top: 8px;"><strong>Cash Call:</strong> Upload "Cash Call Bulk" first, then "Cash Call Summary"</p>
+      <p>Supported format: CSV | Maximum file size: 16MB per file</p>
+      <p style="margin-top: 8px;"><strong>Cash Call:</strong> Requires both Bulk and Summary files</p>
     </div>
   </div>
 
   <script>
     class FileUploader {
       constructor() {
-        this.uploadArea = document.getElementById('upload-area');
-        this.fileInput = document.getElementById('file-input');
-        this.fileList = document.getElementById('file-list');
-        this.messages = document.getElementById('messages');
-        this.submitBtn = document.getElementById('submit-btn');
-        this.form = document.getElementById('upload-form');
         this.typeButtons = document.querySelectorAll('.type-btn');
         this.typeInput = document.getElementById('type-input');
-        this.fileRequirement = document.getElementById('file-requirement');
-        this.selectedType = null;
+        this.submitBtn = document.getElementById('submit-btn');
+        this.form = document.getElementById('upload-form');
+        this.messages = document.getElementById('messages');
+        this.selectedType = 'cash-call';
         
         this.maxFileSize = 16 * 1024 * 1024;
-        this.maxTotalSize = 64 * 1024 * 1024;
+        
+        // Cash Call elements
+        this.cashCallSection = document.getElementById('cash-call-section');
+        this.bulkInput = document.getElementById('bulk-file-input');
+        this.summaryInput = document.getElementById('summary-file-input');
+        this.bulkBox = document.getElementById('bulk-upload-box');
+        this.summaryBox = document.getElementById('summary-upload-box');
+        this.bulkInfo = document.getElementById('bulk-file-info');
+        this.summaryInfo = document.getElementById('summary-file-info');
+        
+        // Premium elements
+        this.premiumSection = document.getElementById('premium-section');
+        this.premiumInput = document.getElementById('premium-file-input');
+        this.premiumArea = document.getElementById('premium-upload-area');
+        this.premiumFileList = document.getElementById('premium-file-list');
         
         this.initEventListeners();
       }
@@ -296,26 +360,16 @@
           btn.addEventListener('click', (e) => this.selectType(e.target));
         });
         
-        this.fileInput.addEventListener('change', (e) => this.handleFiles(e.target.files));
-        this.uploadArea.addEventListener('click', (e) => {
-          if (!this.selectedType) return;
-          if (e.target === this.uploadArea || e.target.classList.contains('upload-icon') || 
-              e.target.classList.contains('upload-text') || e.target.classList.contains('upload-subtext')) {
-            this.fileInput.click();
-          }
-        });
-        this.uploadArea.addEventListener('dragover', (e) => {
-          if (!this.selectedType) return;
-          e.preventDefault();
-          this.uploadArea.classList.add('dragover');
-        });
-        this.uploadArea.addEventListener('dragleave', () => this.uploadArea.classList.remove('dragover'));
-        this.uploadArea.addEventListener('drop', (e) => {
-          if (!this.selectedType) return;
-          e.preventDefault();
-          this.uploadArea.classList.remove('dragover');
-          this.handleFiles(e.dataTransfer.files);
-        });
+        // Cash Call listeners
+        this.setupUploadBox(this.bulkBox, this.bulkInput, this.bulkInfo, 'bulk');
+        this.setupUploadBox(this.summaryBox, this.summaryInput, this.summaryInfo, 'summary');
+        
+        // Premium listeners
+        this.setupPremiumUpload();
+        
+        // Show initial message for Cash Call
+        this.showMessage('Cash Call selected. Upload both Bulk and Summary files.', 'info');
+        
         this.form.addEventListener('submit', (e) => {
           if (!this.validateSubmission()) {
             e.preventDefault();
@@ -324,58 +378,122 @@
             this.submitBtn.disabled = true;
             this.submitBtn.querySelector('.btn-text').textContent = 'Processing...';
             
-            // Check if download started by monitoring cookie
             const downloadTimer = setInterval(() => {
               if (document.cookie.indexOf('download_started=1') !== -1) {
                 clearInterval(downloadTimer);
-                // Clean up cookie
                 document.cookie = 'download_started=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                // Reset button after 800ms
-                setTimeout(() => this.resetButton(), 800);
+                setTimeout(() => {
+                  this.resetButton();
+                  this.clearAllUploads();
+                }, 800);
               }
             }, 100);
             
-            // Fallback: reset after 5 seconds if cookie not detected
             setTimeout(() => {
               clearInterval(downloadTimer);
               this.resetButton();
+              this.clearAllUploads();
             }, 5000);
           }
         });
       }
       
-      selectType(button) {
-        this.typeButtons.forEach(btn => btn.classList.remove('active'));
-        button.classList.add('active');
-        this.selectedType = button.dataset.type;
-        this.typeInput.value = this.selectedType;
+      setupUploadBox(box, input, infoDiv, type) {
+        // Prevent double-click issue by only handling click on specific elements
+        box.addEventListener('click', (e) => {
+          // Don't trigger if clicking on the label (it will trigger the input naturally)
+          if (e.target.tagName === 'LABEL') {
+            return;
+          }
+          // Only trigger on box itself or its child elements (except label)
+          if (!e.target.closest('input')) {
+            e.preventDefault();
+            input.click();
+          }
+        });
         
-        this.uploadArea.classList.remove('disabled');
+        box.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          box.classList.add('dragover');
+        });
         
-        // Show file requirements
-        if (this.selectedType === 'cash-call') {
-          this.fileRequirement.textContent = '⚠️ Cash Call requires 2 files: (1) Cash Call Bulk, (2) Cash Call Summary (with Loss Date)';
-          this.fileRequirement.classList.add('show');
-        } else {
-          this.fileRequirement.textContent = '✓ Premium requires at least 1 file';
-          this.fileRequirement.classList.add('show');
-        }
+        box.addEventListener('dragleave', () => {
+          box.classList.remove('dragover');
+        });
         
-        this.showMessage(`${button.textContent} type selected. You can now upload files.`, 'info');
+        box.addEventListener('drop', (e) => {
+          e.preventDefault();
+          box.classList.remove('dragover');
+          if (e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0];
+            this.handleSingleFile(file, input, box, infoDiv, type);
+          }
+        });
         
-        if (this.fileInput.files.length > 0) {
-          this.validateFileCount();
-        }
+        input.addEventListener('change', (e) => {
+          if (e.target.files.length > 0) {
+            this.handleSingleFile(e.target.files[0], input, box, infoDiv, type);
+          }
+        });
       }
       
-      handleFiles(files) {
-        if (!this.selectedType) {
-          this.showMessage('Please select Cash Call or Premium first.', 'warning');
+      handleSingleFile(file, input, box, infoDiv, type) {
+        if (!file.name.toLowerCase().endsWith('.csv')) {
+          this.showMessage('Only CSV files are allowed.', 'error');
           return;
         }
         
+        if (file.size > this.maxFileSize) {
+          this.showMessage(`File exceeds 16MB limit.`, 'error');
+          return;
+        }
+        
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        input.files = dataTransfer.files;
+        
+        box.classList.add('has-file');
+        infoDiv.innerHTML = `<div class="file-name">${file.name}</div><div class="file-size">${this.formatBytes(file.size)}</div>`;
+        infoDiv.classList.add('show');
+        
+        this.clearMessages();
+        this.validateCashCallFiles();
+      }
+      
+      setupPremiumUpload() {
+        this.premiumArea.addEventListener('click', (e) => {
+          // Don't trigger if clicking on the label
+          if (e.target.tagName === 'LABEL') {
+            return;
+          }
+          if (!e.target.closest('input')) {
+            e.preventDefault();
+            this.premiumInput.click();
+          }
+        });
+        
+        this.premiumArea.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          this.premiumArea.classList.add('dragover');
+        });
+        
+        this.premiumArea.addEventListener('dragleave', () => {
+          this.premiumArea.classList.remove('dragover');
+        });
+        
+        this.premiumArea.addEventListener('drop', (e) => {
+          e.preventDefault();
+          this.premiumArea.classList.remove('dragover');
+          this.handlePremiumFiles(e.dataTransfer.files);
+        });
+        
+        this.premiumInput.addEventListener('change', (e) => {
+          this.handlePremiumFiles(e.target.files);
+        });
+      }
+      
+      handlePremiumFiles(files) {
         const validFiles = [];
-        let totalSize = 0;
         
         for (let file of files) {
           if (!file.name.toLowerCase().endsWith('.csv')) {
@@ -386,56 +504,84 @@
             this.showMessage(`File "${file.name}" exceeds 16MB limit.`, 'error');
             return;
           }
-          totalSize += file.size;
           validFiles.push(file);
-        }
-        
-        if (totalSize > this.maxTotalSize) {
-          this.showMessage('Total file size exceeds 64MB limit.', 'error');
-          return;
         }
         
         const dataTransfer = new DataTransfer();
         validFiles.forEach(file => dataTransfer.items.add(file));
-        this.fileInput.files = dataTransfer.files;
+        this.premiumInput.files = dataTransfer.files;
         
-        this.displayFiles(validFiles);
+        this.displayPremiumFiles(validFiles);
         this.clearMessages();
         
         if (validFiles.length > 0) {
-          this.showMessage(`${validFiles.length} file(s) ready (${this.formatBytes(totalSize)} total)`, 'success');
-          this.validateFileCount();
+          this.showMessage(`${validFiles.length} file(s) ready`, 'success');
+          this.submitBtn.disabled = false;
         }
       }
       
-      validateFileCount() {
-        const fileCount = this.fileInput.files.length;
+      displayPremiumFiles(files) {
+        this.premiumFileList.innerHTML = '';
+        files.forEach(file => {
+          const fileItem = document.createElement('div');
+          fileItem.className = 'file-info show';
+          fileItem.style.marginTop = '8px';
+          fileItem.innerHTML = `<div class="file-name">${file.name}</div><div class="file-size">${this.formatBytes(file.size)}</div>`;
+          this.premiumFileList.appendChild(fileItem);
+        });
+      }
+      
+      selectType(button) {
+        this.typeButtons.forEach(btn => btn.classList.remove('active'));
+        button.classList.add('active');
+        this.selectedType = button.dataset.type;
+        this.typeInput.value = this.selectedType;
+        
+        this.cashCallSection.classList.remove('active');
+        this.premiumSection.classList.remove('active');
         
         if (this.selectedType === 'cash-call') {
-          if (fileCount < 2) {
-            this.showMessage('Cash Call requires 2 files. Please upload both files.', 'warning');
-            this.submitBtn.disabled = true;
-            return false;
-          } else if (fileCount > 2) {
-            this.showMessage('Cash Call requires exactly 2 files. Please remove extra files.', 'warning');
-            this.submitBtn.disabled = true;
-            return false;
-          } else {
-            this.submitBtn.disabled = false;
-            return true;
-          }
+          this.cashCallSection.classList.add('active');
+          this.showMessage('Cash Call selected. Upload both Bulk and Summary files.', 'info');
         } else if (this.selectedType === 'premium') {
-          if (fileCount < 1) {
-            this.showMessage('Premium requires at least 1 file.', 'warning');
-            this.submitBtn.disabled = true;
-            return false;
-          } else {
-            this.submitBtn.disabled = false;
-            return true;
-          }
+          this.premiumSection.classList.add('active');
+          this.showMessage('Premium selected. Upload one or more CSV files.', 'info');
         }
         
-        return false;
+        this.submitBtn.disabled = true;
+      }
+      
+      restoreSelectedType() {
+        if (!this.selectedType) return;
+        
+        this.typeButtons.forEach(btn => {
+          if (btn.dataset.type === this.selectedType) {
+            btn.classList.add('active');
+          }
+        });
+        
+        if (this.selectedType === 'cash-call') {
+          this.cashCallSection.classList.add('active');
+          this.showMessage('Cash Call selected. Upload both Bulk and Summary files.', 'info');
+        } else if (this.selectedType === 'premium') {
+          this.premiumSection.classList.add('active');
+          this.showMessage('Premium selected. Upload one or more CSV files.', 'info');
+        }
+      }
+      
+      validateCashCallFiles() {
+        const hasBulk = this.bulkInput.files.length > 0;
+        const hasSummary = this.summaryInput.files.length > 0;
+        
+        if (hasBulk && hasSummary) {
+          this.submitBtn.disabled = false;
+          this.showMessage('Both files uploaded. Ready to process!', 'success');
+        } else if (hasBulk || hasSummary) {
+          this.submitBtn.disabled = true;
+          this.showMessage('Please upload both Bulk and Summary files.', 'warning');
+        } else {
+          this.submitBtn.disabled = true;
+        }
       }
       
       validateSubmission() {
@@ -444,29 +590,25 @@
           return false;
         }
         
-        if (!this.fileInput.files.length) {
-          this.showMessage('Please select at least one CSV file.', 'error');
-          return false;
+        if (this.selectedType === 'cash-call') {
+          if (!this.bulkInput.files.length || !this.summaryInput.files.length) {
+            this.showMessage('Please upload both Bulk and Summary files.', 'error');
+            return false;
+          }
+        } else if (this.selectedType === 'premium') {
+          if (!this.premiumInput.files.length) {
+            this.showMessage('Please upload at least one CSV file.', 'error');
+            return false;
+          }
         }
         
-        return this.validateFileCount();
-      }
-      
-      displayFiles(files) {
-        this.fileList.innerHTML = '';
-        for (let file of files) {
-          const li = document.createElement('li');
-          li.className = 'file-item';
-          li.innerHTML = `<span class="file-name">${file.name}</span>
-                          <span class="file-size">${this.formatBytes(file.size)}</span>`;
-          this.fileList.appendChild(li);
-        }
+        return true;
       }
       
       formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const sizes = ['Bytes', 'KB', 'MB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
       }
@@ -486,10 +628,28 @@
         this.submitBtn.disabled = false;
         this.submitBtn.querySelector('.btn-text').textContent = 'Process Files';
       }
+      
+      clearAllUploads() {
+        this.bulkInput.value = '';
+        this.summaryInput.value = '';
+        this.premiumInput.value = '';
+        
+        this.bulkBox.classList.remove('has-file');
+        this.summaryBox.classList.remove('has-file');
+        this.bulkInfo.classList.remove('show');
+        this.summaryInfo.classList.remove('show');
+        this.premiumFileList.innerHTML = '';
+        
+        this.clearMessages();
+        this.submitBtn.disabled = true;
+        
+        // Restore the previously selected type
+        this.restoreSelectedType();
+      }
     }
     
     document.addEventListener('DOMContentLoaded', () => {
-      const uploader = new FileUploader();
+      new FileUploader();
     });
   </script>
 </body>

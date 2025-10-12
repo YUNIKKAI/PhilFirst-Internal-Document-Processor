@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, send_file, flash, redirect, url_for, after_this_request
-from soa_reinsurer.soa_reinsurer_processor import extract_soa_reinsurer
+from soa_reinsurer.soa_reinsurer_premium import extract_soa_reinsurer_premium
+from soa_reinsurer.soa_reinsurer_cashcall import extract_soa_reinsurer_cashcall
 import shutil
 import os
 
@@ -9,14 +10,8 @@ soa_ri_bp = Blueprint("soa_reinsurer", __name__)
 @soa_ri_bp.route("/", methods=["GET", "POST"])
 def soa_handler():
     if request.method == "POST":
-        # ✅ Grab uploaded files + form type
-        files = request.files.getlist("files")
+        # ✅ Get the selected type
         file_type = request.form.get("type")
-
-        # 🧩 Validate file presence
-        if not files or all(f.filename.strip() == "" for f in files):
-            flash("No CSV files uploaded.")
-            return redirect(url_for("soa_reinsurer.soa_handler"))
 
         # 🧩 Validate selected type
         if not file_type:
@@ -24,8 +19,40 @@ def soa_handler():
             return redirect(url_for("soa_reinsurer.soa_handler"))
 
         try:
-            # 🧠 Process the uploaded files
-            result = extract_soa_reinsurer(files, file_type)
+            # 🧠 Process based on type
+            if file_type == 'premium':
+                # Get multiple premium files
+                files = request.files.getlist("premium_files")
+                
+                if not files or all(f.filename.strip() == "" for f in files):
+                    flash("No CSV files uploaded for Premium.")
+                    return redirect(url_for("soa_reinsurer.soa_handler"))
+                
+                result = extract_soa_reinsurer_premium(files)
+                
+            elif file_type == 'cash-call':
+                # Get the two separate files for Cash Call
+                bulk_file = request.files.get("bulk_file")
+                summary_file = request.files.get("summary_file")
+                
+                # Validate both files are present
+                if not bulk_file or bulk_file.filename.strip() == "":
+                    flash("Cash Call Bulk file is missing.")
+                    return redirect(url_for("soa_reinsurer.soa_handler"))
+                
+                if not summary_file or summary_file.filename.strip() == "":
+                    flash("Cash Call Summary file is missing.")
+                    return redirect(url_for("soa_reinsurer.soa_handler"))
+                
+                # Pass both files as a list to maintain compatibility with your function
+                # Assuming your function expects files in order: [bulk, summary]
+                files = [bulk_file, summary_file]
+                result = extract_soa_reinsurer_cashcall(files)
+                
+            else:
+                flash(f"Invalid file type: {file_type}")
+                return redirect(url_for("soa_reinsurer.soa_handler"))
+            
             if not result:
                 flash("No valid SOA data found.")
                 return redirect(url_for("soa_reinsurer.soa_handler"))
