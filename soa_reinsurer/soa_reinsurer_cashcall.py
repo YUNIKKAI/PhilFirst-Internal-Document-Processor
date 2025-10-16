@@ -65,26 +65,126 @@ def calculate_aging_cashcall(fla_date):
         return 'CURRENT'
 
 def clean_cashcall_bulk_data(df):
-    """Remove rows where only 'Assured' has data and other critical columns are empty"""
+    """Remove rows where only 'Assured' has data and handle partial Policy Number rows"""
     print("Cleaning bulk data...")
     original_count = len(df)
+
+    # Defensive copy
+    df = df.copy()
+
+    # Ensure Policy Number column exists
+    if 'Policy Number' not in df.columns:
+        raise ValueError("'Policy Number' column is missing in bulk data")
+
+    # === Step 1: Handle policy numbers ending with '-' ===
+    print("Processing incomplete policy numbers (ending with '-')...")
+    rows_to_drop_step1 = []
     
+    for idx in df.index:
+        row = df.loc[idx]
+        policy_num = str(row.get('Policy Number', '')).strip()
+        
+        # Check if policy number ends with '-'
+        if policy_num.endswith('-'):
+            print(f"  Found incomplete policy at row {idx}: {policy_num}")
+            
+            # Look ahead to find the next row with policy number
+            current_index_pos = df.index.get_loc(idx)
+            next_policy = None
+            next_idx = None
+            
+            # Search following rows for a row with only policy number
+            for search_offset in range(1, len(df) - current_index_pos):
+                search_idx = df.index[current_index_pos + search_offset]
+                search_row = df.loc[search_idx]
+                
+                search_policy = str(search_row.get('Policy Number', '')).strip()
+                has_reinsurer = not pd.isna(search_row.get('Reinsurer')) and str(search_row.get('Reinsurer')).strip() != ''
+                has_claim = not pd.isna(search_row.get('Claim Number')) and str(search_row.get('Claim Number')).strip() != ''
+                
+                # If we hit another complete row, stop searching
+                if has_reinsurer or has_claim:
+                    break
+                
+                # Found a row with policy number (likely the continuation)
+                if search_policy and search_policy != 'nan':
+                    next_policy = search_policy
+                    next_idx = search_idx
+                    print(f"    Found continuation at row {search_idx}: {next_policy}")
+                    break
+            
+            # Concatenate the next policy number to the incomplete one
+            if next_policy and next_idx is not None:
+                # Keep the trailing '-' and concatenate directly (no space)
+                new_policy = policy_num + next_policy
+                df.at[idx, 'Policy Number'] = new_policy.strip()
+                print(f"    Concatenated: {policy_num} + {next_policy} = {new_policy}")
+                
+                # Mark the continuation row for deletion
+                rows_to_drop_step1.append(next_idx)
+                print(f"    Marked row {next_idx} for removal")
+            else:
+                print(f"    No continuation found for incomplete policy at row {idx}")
+    
+    # Drop concatenated continuation rows
+    if rows_to_drop_step1:
+        print(f"  Removing {len(rows_to_drop_step1)} continuation rows...")
+        df = df.drop(rows_to_drop_step1).reset_index(drop=True)
+
+    # === Step 2: Handle rows with only Assured and/or Policy Number ===
+    rows_to_drop = []
+    last_valid_index = None  # Remember last "complete" row
+
+    for idx in df.index:
+        row = df.loc[idx]
+
+        has_reinsurer = not pd.isna(row.get('Reinsurer')) and str(row.get('Reinsurer')).strip() != ''
+        has_claim = not pd.isna(row.get('Claim Number')) and str(row.get('Claim Number')).strip() != ''
+        has_policy = not pd.isna(row.get('Policy Number')) and str(row.get('Policy Number')).strip() != ''
+        has_assured = not pd.isna(row.get('Assured')) and str(row.get('Assured')).strip() != ''
+
+        # Complete row — update pointer
+        if has_reinsurer or has_claim:
+            last_valid_index = idx
+            continue
+
+        # Only Assured → drop
+        if has_assured and not has_policy:
+            rows_to_drop.append(idx)
+            continue
+
+        # Has Policy Number (and maybe Assured) → concatenate to last complete row
+        if has_policy and last_valid_index is not None:
+            prev_policy = str(df.at[last_valid_index, 'Policy Number'])
+            new_policy = str(row['Policy Number']).strip()
+            if new_policy not in prev_policy:
+                df.at[last_valid_index, 'Policy Number'] = f"{prev_policy} {new_policy}".strip()
+            rows_to_drop.append(idx)
+            continue
+
+        # Neither assured nor policy number → drop
+        if not has_assured and not has_policy:
+            rows_to_drop.append(idx)
+
+    # Drop those filler rows
+    df = df.drop(rows_to_drop).reset_index(drop=True)
+
+    # === Step 3: Continue original logic ===
     critical_columns = ['Reinsurer', 'Policy Number', 'Claim Number']
-    
     mask = pd.Series([True] * len(df))
-    
+
     for col in critical_columns:
         if col in df.columns:
             col_empty = df[col].isna() | (df[col].astype(str).str.strip() == '') | (df[col].astype(str).str.strip() == 'nan')
             mask = mask & col_empty
-    
+
     df_cleaned = df[~mask].copy()
-    
+
     removed_count = original_count - len(df_cleaned)
     print(f"  Original rows: {original_count}")
     print(f"  Removed rows: {removed_count}")
     print(f"  Remaining rows: {len(df_cleaned)}")
-    
+
     return df_cleaned
 
 def load_merge_config():
@@ -193,14 +293,29 @@ def process_cashcall(files):
     print(f"Available columns after filter: {available_columns}")
     df_processed = df_bulk_copy[available_columns].copy()
     
+    # CRITICAL: Process Total Amount Due - preserve negatives!
     if 'Total Amount Due' in df_processed.columns:
-        print("Processing Total Amount Due...")
-        df_processed['Total Amount Due'] = pd.to_numeric(
-            df_processed['Total Amount Due'].astype(str).str.replace(',', ''), 
-            errors='coerce'
-        )
-        print(f"  Processed {len(df_processed)} rows for Total Amount Due")
-    
+        print("Processing Total Amount Due - PRESERVING NEGATIVES...")
+        print(f"  Before conversion - sample raw values: {df_processed['Total Amount Due'].head(10).tolist()}")
+
+        # Convert to a string series for manipulation
+        amount_series = df_processed['Total Amount Due'].astype(str).str.strip()
+
+        # 1. Remove commas
+        amount_series = amount_series.str.replace(',', '', regex=False)
+        # 2. Replace parentheses with a standard negative sign
+        amount_series = amount_series.str.replace('(', '-', regex=False).str.replace(')', '', regex=False)
+        # 3. Handle trailing minus signs (e.g., "123.45-")
+        amount_series = amount_series.apply(lambda x: f"-{x[:-1]}" if x.endswith('-') else x)
+
+        # Now, convert to numeric. With the cleaning above, this will work correctly.
+        df_processed['Total Amount Due'] = pd.to_numeric(amount_series, errors='coerce')
+
+        print(f"  After conversion - sample values: {df_processed['Total Amount Due'].head(10).tolist()}")
+        print(f"  Negative count: {(df_processed['Total Amount Due'] < 0).sum()}")
+        print(f"  Positive count: {(df_processed['Total Amount Due'] > 0).sum()}")
+        print(f"  Zero count: {(df_processed['Total Amount Due'] == 0).sum()}")
+        
     merge_list, rename_map = load_merge_config()
     
     output_dfs = []
@@ -221,6 +336,7 @@ def process_cashcall(files):
                 # Merge group: combine all members
                 merged_sections = []
                 master_name = None
+                total_for_merged = 0
                 
                 for group_member in merge_group:
                     group_member_data = df_processed[
@@ -235,22 +351,57 @@ def process_cashcall(files):
                         if master_name is None:
                             master_name = rename_map.get(group_member, group_member)
                         
+                        # Calculate subtotal for this member (INCLUDING NEGATIVES)
+                        if 'Total Amount Due' in group_member_data.columns:
+                            member_total = group_member_data['Total Amount Due'].sum()
+                            total_for_merged += member_total
+                            print(f"  Group member {group_member}: total = {member_total}")
+                        
                         merged_sections.append((group_member, group_member_data))
                 
-                if merged_sections and master_name:
-                    output_dfs.append((master_name, merged_sections, True))
+                # Only add if total is not 0
+                if merged_sections and master_name and total_for_merged != 0:
+                    # Now remove rows with 0 amount from each section
+                    filtered_sections = []
+                    for section_name, section_df in merged_sections:
+                        if 'Total Amount Due' in section_df.columns:
+                            section_df_filtered = section_df[section_df['Total Amount Due'] != 0].copy()
+                            if not section_df_filtered.empty:
+                                filtered_sections.append((section_name, section_df_filtered))
+                        else:
+                            filtered_sections.append((section_name, section_df))
+                    
+                    if filtered_sections:
+                        output_dfs.append((master_name, filtered_sections, True))
+                        print(f"  Added merged group: {master_name} (Total: {total_for_merged})")
+                elif total_for_merged == 0:
+                    print(f"  Skipped merged group: {master_name} (Total Amount Due = 0)")
             else:
                 # Single reinsurer
                 reinsurer_df = df_processed[df_processed['Reinsurer'] == reinsurer].copy()
                 processed_reinsurers.add(reinsurer_normalized)
                 
-                output_dfs.append((reinsurer, reinsurer_df, False))
+                # Check if subtotal is 0
+                if 'Total Amount Due' in reinsurer_df.columns:
+                    subtotal = reinsurer_df['Total Amount Due'].sum()
+                    print(f"  Reinsurer {reinsurer}: subtotal = {subtotal}")
+                    if subtotal != 0:
+                        # Remove rows with 0 amount
+                        reinsurer_df_filtered = reinsurer_df[reinsurer_df['Total Amount Due'] != 0].copy()
+                        if not reinsurer_df_filtered.empty:
+                            output_dfs.append((reinsurer, reinsurer_df_filtered, False))
+                            print(f"  Added single reinsurer: {reinsurer} (Total: {subtotal})")
+                    else:
+                        print(f"  Skipped reinsurer: {reinsurer} (Total Amount Due = 0)")
+                else:
+                    output_dfs.append((reinsurer, reinsurer_df, False))
     
     print(f"Created {len(output_dfs)} output dataframes")
     return output_dfs
 
 def apply_cashcall_formatting(file_path, reinsurer_name):
     """Apply formatting to single cashcall Excel file"""
+    print(f"\n=== FORMATTING SINGLE FILE: {reinsurer_name} ===")
     wb = load_workbook(file_path)
     ws = wb.active
     
@@ -271,7 +422,7 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
     ws['A1'] = 'PHILIPPINE FIRST INSURANCE CO. INC'
     ws['A1'].font = Font(bold=True, size=12)
     
-    ws['A2'] = 'STATEMENT OF ACCOUNT - CASH CALL'
+    ws['A2'] = 'STATEMENT OF ACCOUNT'
     ws['A2'].font = Font(bold=True)
     
     today = datetime.now().strftime("AS OF %B %d, %Y").upper()
@@ -316,7 +467,11 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
             amount_col = col_idx
             break
     
-    # Calculate totals and aging summary
+    print(f"Amount column index: {amount_col}")
+    print(f"Data range: rows {data_start_row} to {data_end_row}")
+    
+    # === PHASE 1: CALCULATION - NO FORMATTING ===
+    print("\n--- PHASE 1: CALCULATIONS ---")
     total_amount = 0
     aging_summary = {
         'CURRENT': 0,
@@ -334,32 +489,36 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
             aging_col = col_idx
             break
     
+    # Calculate totals WITHOUT any formatting
     for row in range(data_start_row, data_end_row + 1):
         if amount_col:
             amount_cell = ws.cell(row=row, column=amount_col)
-            if amount_cell.value and isinstance(amount_cell.value, (int, float)):
-                total_amount += amount_cell.value
-                # Format negative values as (value) in red
-                if amount_cell.value < 0:
-                    amount_cell.value = abs(amount_cell.value)
-                    amount_cell.number_format = '(#,##0.00)'
-                    amount_cell.font = Font(color='FF0000')
+            cell_val = amount_cell.value
+            
+            if cell_val is not None and cell_val != '':
+                if isinstance(cell_val, (int, float)):
+                    print(f"  Row {row}: value = {cell_val} (type: {type(cell_val)})")
+                    total_amount += cell_val
                 else:
-                    amount_cell.number_format = '#,##0.00'
+                    print(f"  Row {row}: value = '{cell_val}' (type: {type(cell_val)}) - SKIPPED")
         
-        if aging_col:
+        if aging_col and amount_col:
             aging_cell = ws.cell(row=row, column=aging_col)
             aging_val = aging_cell.value
-            amount_cell = ws.cell(row=row, column=amount_col) if amount_col else None
+            amount_cell = ws.cell(row=row, column=amount_col)
             
-            if aging_val and amount_cell and amount_cell.value:
+            if aging_val and amount_cell.value is not None:
                 aging_str = str(aging_val).strip()
                 if aging_str in aging_summary:
                     try:
-                        amt = float(str(amount_cell.value).replace(',', ''))
+                        amt = float(amount_cell.value) if isinstance(amount_cell.value, (int, float)) else float(str(amount_cell.value).replace(',', ''))
                         aging_summary[aging_str] += amt
-                    except (ValueError, TypeError):
-                        pass
+                        print(f"  Aging {aging_str}: added {amt}")
+                    except (ValueError, TypeError) as e:
+                        print(f"  Aging calculation error: {e}")
+    
+    print(f"\nTotal calculated: {total_amount}")
+    print(f"Aging summary: {aging_summary}")
     
     # Add subtotal row
     subtotal_row = data_end_row + 1
@@ -368,23 +527,23 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
         cell.border = thin_border
         if col == amount_col:
             cell.value = total_amount
-            cell.number_format = '#,##0.00'
             cell.font = Font(bold=True)
     
     current_row = subtotal_row + 2
     
-    # Add aging summary
+    # Add aging summary (only non-zero categories)
     ws.cell(row=current_row, column=1).value = 'AGING SUMMARY'
     ws.cell(row=current_row, column=1).font = Font(bold=True)
     current_row += 1
     
     for aging_label in ['CURRENT', 'Over 30 days', 'Over 60 days', 'Over 90 days', 'Over 120 days', 'Over 180 days', 'Over 360 days']:
-        ws.cell(row=current_row, column=1).value = aging_label
-        aging_cell = ws.cell(row=current_row, column=2)
-        aging_cell.value = aging_summary.get(aging_label, 0)
-        aging_cell.number_format = '#,##0.00'
-        aging_cell.font = Font(underline='single')
-        current_row += 1
+        aging_value = aging_summary.get(aging_label, 0)
+        if aging_value != 0:
+            ws.cell(row=current_row, column=1).value = aging_label
+            aging_cell = ws.cell(row=current_row, column=2)
+            aging_cell.value = aging_value
+            aging_cell.font = Font(underline='single')
+            current_row += 1
     
     # Total aging row
     total_aging = sum(aging_summary.values())
@@ -393,39 +552,29 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
     total_aging_cell = ws.cell(row=current_row, column=2)
     total_aging_cell.value = total_aging
     total_aging_cell.font = Font(bold=True, underline='single')
-    total_aging_cell.number_format = '#,##0.00'
     current_row += 2
     
-    # === Add footer at the end (only once) ===
+    # === Add footer ===
     current_row += 1
     italic_fmt = Font(italic=True)
     bold_fmt = Font(bold=True)
     regular_fmt = Font()
     italic_lines = {
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:"
+        "For your convenience, payments may be made via the BDO Bills Payment facility:"
     }
     bold_lines = {
-        "1. BDO Bills Payment", "a. BDO Mobile Application", "b. Over the Counter",
-        "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC"
+        "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page", "b. Over the Counter",
+        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
     }
     footer_lines = [
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:",
-        "", "1. BDO Bills Payment", "a. BDO Mobile Application",
-        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: Policy Invoice Number (Bill Number)",
+        "For your convenience, payments may be made via the BDO Bills Payment facility:",
+        "", "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page",
+        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: HO-0001",
         "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
-        "   ii. Subscriber Name: Assured Name", "   iii. Subscriber Account Number: Billing Invoice Number",
-        "", "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "   i. Biller: Philippines First Insurance Co or PFSINC(for short name)", "   ii. Reference Number: Billing Invoice Number",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "   i. Transaction: Bills Payment", "   ii. Merchant: Other Merchant",
-        "   iii. Reference Number: Billing Invoice Number", "",
-        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "   ii. Subscriber Name: Your Company Name", "   iii. Subscriber Account Number: HO-0001",
+        "", "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
     ]
     for line in footer_lines:
         cell = ws.cell(row=current_row, column=1)
@@ -438,10 +587,50 @@ def apply_cashcall_formatting(file_path, reinsurer_name):
             cell.font = regular_fmt
         current_row += 1
     
+    # === PHASE 2: FORMATTING ONLY ===
+    print("\n--- PHASE 2: FORMATTING ---")
+    
+    # Define the standard accounting number format
+    # Positive: #,##0.00; Negative: [Red](#,##0.00); Zero: 0.00
+    accounting_format = '#,##0.00;[Red](#,##0.00);0.00'
+    
+    # Format data rows
+    for row in range(data_start_row, data_end_row + 1):
+        if amount_col:
+            amount_cell = ws.cell(row=row, column=amount_col)
+            if amount_cell.value is not None and isinstance(amount_cell.value, (int, float)):
+                amount_cell.number_format = accounting_format
+    
+    # Format subtotal
+    subtotal_cell = ws.cell(row=subtotal_row, column=amount_col)
+    if subtotal_cell.value is not None and isinstance(subtotal_cell.value, (int, float)):
+        subtotal_cell.number_format = accounting_format
+        subtotal_cell.font = Font(bold=True) # Keep font bold, color is handled by format
+    
+    # Format aging summary values
+    aging_summary_start = subtotal_row + 3
+    # Note: current_row is now the row *after* the footer was added. We need the end of the aging block.
+    aging_end_row = subtotal_row + 3 + len([v for v in aging_summary.values() if v != 0]) + 1
+
+    for row in range(aging_summary_start, aging_end_row + 1):
+        label_cell = ws.cell(row=row, column=1)
+        value_cell = ws.cell(row=row, column=2)
+        
+        if value_cell.value is not None and isinstance(value_cell.value, (int, float)):
+            value_cell.number_format = accounting_format
+            
+            # Apply underline/bold styling, color is handled by the format string
+            if label_cell.value == 'Total':
+                value_cell.font = Font(bold=True, underline='single')
+            else:
+                value_cell.font = Font(underline='single')
+    
+    print(f"=== FORMATTING COMPLETE ===\n")
     wb.save(file_path)
 
 def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
     """Apply formatting to merged cashcall Excel file with separate sections per reinsurer"""
+    print(f"\n=== FORMATTING MERGED FILE ===")
     wb = load_workbook(file_path)
     ws = wb.active
     
@@ -465,7 +654,7 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
     ws.cell(row=current_row, column=1).font = Font(bold=True, size=12)
     current_row += 1
     
-    ws.cell(row=current_row, column=1).value = 'STATEMENT OF ACCOUNT - CASH CALL'
+    ws.cell(row=current_row, column=1).value = 'STATEMENT OF ACCOUNT'
     ws.cell(row=current_row, column=1).font = Font(bold=True)
     current_row += 1
     
@@ -484,18 +673,17 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
     
     # Track grand totals for all sections
     grand_total_amount = 0
-    grand_aging_summary = {
-        'CURRENT': 0,
-        'Over 30 days': 0,
-        'Over 60 days': 0,
-        'Over 90 days': 0,
-        'Over 120 days': 0,
-        'Over 180 days': 0,
-        'Over 360 days': 0
-    }
+    
+    # Store section positions for later formatting
+    section_positions = []
+    
+    # === PHASE 1: DATA WRITING - NO FORMATTING ===
+    print("\n--- PHASE 1: WRITING DATA ---")
     
     # Process each reinsurer section
     for group_idx, (reinsurer_name, reinsurer_df) in enumerate(reinsurer_groups):
+        print(f"\nProcessing section: {reinsurer_name}")
+        
         if group_idx > 0:
             # Separator between sections
             current_row += 1
@@ -503,6 +691,8 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
             separator_cell.value = '.' * 100
             separator_cell.font = separator_font
             current_row += 2
+        
+        section_start_row = current_row
         
         # Reinsurer name
         ws.cell(row=current_row, column=1).value = reinsurer_name
@@ -553,31 +743,28 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
             'Over 360 days': 0
         }
         
+        # Write data rows - PRESERVE ALL VALUES
         for _, row_data in reinsurer_df.iterrows():
             for col_idx in range(1, max_col + 1):
                 cell = ws.cell(row=current_row, column=col_idx)
+                col_name = reinsurer_df.columns[col_idx - 1]
                 value = row_data.iloc[col_idx - 1]
                 
+                # Write value as-is, NO FORMATTING
                 if pd.notna(value) and value != '':
                     cell.value = value
+                    
+                    if col_name == 'Total Amount Due':
+                        print(f"  Row {current_row}: Writing amount = {value} (type: {type(value)})")
                 
                 cell.border = thin_border
                 
-                # Format numeric columns
-                col_name = reinsurer_df.columns[col_idx - 1]
+                # Track totals (including negatives)
                 if col_name == 'Total Amount Due' and pd.notna(value) and value != '':
                     try:
                         num_val = float(str(value).replace(',', ''))
                         total_amount += num_val
                         grand_total_amount += num_val
-                        # Format negative values as (value) in red
-                        if num_val < 0:
-                            cell.value = abs(num_val)
-                            cell.number_format = '(#,##0.00)'
-                            cell.font = Font(color='FF0000')
-                        else:
-                            cell.value = num_val
-                            cell.number_format = '#,##0.00'
                     except (ValueError, TypeError):
                         pass
                 
@@ -590,11 +777,15 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
                         try:
                             amt = float(str(amount_val).replace(',', ''))
                             aging_summary[aging_val] += amt
-                            grand_aging_summary[aging_val] += amt
                         except (ValueError, TypeError):
                             pass
             
             current_row += 1
+        
+        data_end_row = current_row - 1
+        
+        print(f"  Section total: {total_amount}")
+        print(f"  Section aging summary: {aging_summary}")
         
         # Subtotal row
         subtotal_row = current_row
@@ -603,75 +794,79 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
             cell.border = thin_border
             if col == amount_col:
                 cell.value = total_amount
-                cell.number_format = '#,##0.00'
                 cell.font = Font(bold=True)
             else:
                 cell.value = ''
         
         current_row += 2
         
-        # Aging summary for this section
+        # Aging summary for this section (only non-zero categories)
+        aging_summary_start = current_row
         ws.cell(row=current_row, column=1).value = 'AGING SUMMARY'
         ws.cell(row=current_row, column=1).font = Font(bold=True)
         current_row += 1
         
         for aging_label in ['CURRENT', 'Over 30 days', 'Over 60 days', 'Over 90 days', 'Over 120 days', 'Over 180 days', 'Over 360 days']:
-            ws.cell(row=current_row, column=1).value = aging_label
-            aging_cell = ws.cell(row=current_row, column=2)
-            aging_cell.value = aging_summary.get(aging_label, 0)
-            aging_cell.number_format = '#,##0.00'
-            aging_cell.font = Font(underline='single')
-            current_row += 1
+            aging_value = aging_summary.get(aging_label, 0)
+            if aging_value != 0:
+                ws.cell(row=current_row, column=1).value = aging_label
+                aging_cell = ws.cell(row=current_row, column=2)
+                aging_cell.value = aging_value
+                aging_cell.font = Font(underline='single')
+                current_row += 1
         
         # Total aging row for section
         total_section_aging = sum(aging_summary.values())
+        total_aging_row = current_row
         ws.cell(row=current_row, column=1).value = 'Total'
         ws.cell(row=current_row, column=1).font = Font(bold=True)
         total_aging_cell = ws.cell(row=current_row, column=2)
         total_aging_cell.value = total_section_aging
         total_aging_cell.font = Font(bold=True, underline='single')
-        total_aging_cell.number_format = '#,##0.00'
         current_row += 2
+        
+        # Store section info for formatting later
+        section_positions.append({
+            'data_start': data_start_row,
+            'data_end': data_end_row,
+            'subtotal_row': subtotal_row,
+            'aging_summary_start': aging_summary_start + 1,
+            'total_aging_row': total_aging_row,
+            'amount_col': amount_col
+        })
     
-    # Grand totals - only grand total amount (no grand aging summary)
+    # Grand totals - only grand total amount
     current_row += 1
+    grand_total_row = current_row
     ws.cell(row=current_row, column=1).value = 'GRAND TOTAL'
     ws.cell(row=current_row, column=1).font = Font(bold=True, size=11)
     grand_total_cell = ws.cell(row=current_row, column=2)
     grand_total_cell.value = grand_total_amount
     grand_total_cell.font = Font(bold=True, size=11, underline='single')
-    grand_total_cell.number_format = '#,##0.00'
     current_row += 2
     
-    # === Add footer at the end (only once) ===
+    print(f"\nGrand total: {grand_total_amount}")
+    
+    # === Add footer ===
     italic_fmt = Font(italic=True)
     bold_fmt = Font(bold=True)
     regular_fmt = Font()
     italic_lines = {
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:"
+        "For your convenience, payments may be made via the BDO Bills Payment facility:"
     }
     bold_lines = {
-        "1. BDO Bills Payment", "a. BDO Mobile Application", "b. Over the Counter",
-        "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC"
+        "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page", "b. Over the Counter",
+        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
     }
     footer_lines = [
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:",
-        "", "1. BDO Bills Payment", "a. BDO Mobile Application",
-        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: Policy Invoice Number (Bill Number)",
+        "For your convenience, payments may be made via the BDO Bills Payment facility:",
+        "", "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page",
+        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: HO-0001",
         "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
-        "   ii. Subscriber Name: Assured Name", "   iii. Subscriber Account Number: Billing Invoice Number",
-        "", "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "   i. Biller: Philippines First Insurance Co or PFSINC(for short name)", "   ii. Reference Number: Billing Invoice Number",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "   i. Transaction: Bills Payment", "   ii. Merchant: Other Merchant",
-        "   iii. Reference Number: Billing Invoice Number", "",
-        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "   ii. Subscriber Name: Your Company Name", "   iii. Subscriber Account Number: HO-0001",
+        "", "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
     ]
     for line in footer_lines:
         cell = ws.cell(row=current_row, column=1)
@@ -684,6 +879,50 @@ def apply_cashcall_formatting_merged(file_path, reinsurer_groups):
             cell.font = regular_fmt
         current_row += 1
     
+    # === PHASE 2: FORMATTING ONLY ===
+    print("\n--- PHASE 2: FORMATTING ---")
+    
+    # Define the standard accounting number format
+    accounting_format = '#,##0.00;[Red](#,##0.00);0.00'
+    
+    # Format each section
+    for idx, section in enumerate(section_positions):
+        print(f"\nFormatting section {idx + 1}")
+        amount_col = section['amount_col']
+        
+        if amount_col:
+            # Format data rows
+            for row in range(section['data_start'], section['data_end'] + 1):
+                cell = ws.cell(row=row, column=amount_col)
+                if cell.value is not None and isinstance(cell.value, (int, float)):
+                    cell.number_format = accounting_format
+            
+            # Format subtotal
+            subtotal_cell = ws.cell(row=section['subtotal_row'], column=amount_col)
+            if subtotal_cell.value is not None and isinstance(subtotal_cell.value, (int, float)):
+                subtotal_cell.number_format = accounting_format
+                subtotal_cell.font = Font(bold=True)
+        
+        # Format aging summary
+        for row in range(section['aging_summary_start'], section['total_aging_row'] + 1):
+            value_cell = ws.cell(row=row, column=2)
+            if value_cell.value is not None and isinstance(value_cell.value, (int, float)):
+                value_cell.number_format = accounting_format
+                
+                # Apply styles (bold/underline), color is handled by the format string
+                label_cell = ws.cell(row=row, column=1)
+                if label_cell.value == 'Total':
+                    value_cell.font = Font(bold=True, underline='single')
+                else:
+                    value_cell.font = Font(underline='single')
+    
+    # Format grand total
+    grand_total_cell = ws.cell(row=grand_total_row, column=2)
+    if grand_total_cell.value is not None and isinstance(grand_total_cell.value, (int, float)):
+        grand_total_cell.number_format = accounting_format
+        grand_total_cell.font = Font(bold=True, size=11, underline='single')
+
+    print(f"\n=== FORMATTING COMPLETE ===\n")
     wb.save(file_path)
 
 def extract_soa_reinsurer_cashcall(files):

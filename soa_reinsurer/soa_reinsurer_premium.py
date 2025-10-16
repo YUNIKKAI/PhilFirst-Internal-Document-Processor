@@ -182,22 +182,22 @@ def apply_premium_formatting_merged(file_path, reinsurer_groups):
             for col_idx in range(1, max_col + 1):
                 cell = ws.cell(row=current_row, column=col_idx)
                 value = row_data.iloc[col_idx - 1]
-                
-                if pd.notna(value) and value != '':
-                    cell.value = value
-                
-                cell.border = thin_border
-                
-                # Format numeric columns
                 col_name = reinsurer_df.columns[col_idx - 1]
+                
+                # Handle Balance Due specially - ensure it's numeric
                 if col_name == 'Balance Due' and pd.notna(value) and value != '':
                     try:
                         num_val = float(str(value).replace(',', ''))
+                        cell.value = num_val  # Store as number, not string
                         total_balance += num_val
-                        cell.value = num_val
-                        cell.number_format = '#,##0.00'
+                        # Don't apply formatting yet - do it after all values are written
                     except (ValueError, TypeError):
-                        pass
+                        cell.value = value
+                else:
+                    if pd.notna(value) and value != '':
+                        cell.value = value
+                
+                cell.border = thin_border
                 
                 # Track aging for summary
                 if col_name == 'Aging' and aging_col and balance_col:
@@ -219,46 +219,70 @@ def apply_premium_formatting_merged(file_path, reinsurer_groups):
         
         data_end_row = current_row - 1
         
+        # === NOW apply formatting to Balance Due column (after all values written) ===
+        if balance_col:
+            for row_idx in range(data_start_row, data_end_row + 1):
+                cell = ws.cell(row=row_idx, column=balance_col)
+                if cell.value is not None and isinstance(cell.value, (int, float)):
+                    if cell.value < 0:
+                        # Negative: show as (X.XX) in red
+                        cell.number_format = '_-* #,##0.00_-;_-* (#,##0.00);_-* "-"??_-;_-@_-'
+                        cell.font = Font(color='FF0000')  # Red
+                    else:
+                        # Positive: standard format
+                        cell.number_format = '#,##0.00'
+        
         # === Add subtotal row ===
         subtotal_row = current_row
         for col in range(1, max_col + 1):
             cell = ws.cell(row=subtotal_row, column=col)
             cell.border = thin_border
             if col == balance_col:
-                cell.value = total_balance
-                cell.number_format = '#,##0.00'
-                cell.font = Font(bold=True)
+                cell.value = total_balance  # Store as number
+                # Apply format based on sign
+                if total_balance < 0:
+                    cell.number_format = '_-* #,##0.00_-;_-* (#,##0.00);_-* "-"??_-;_-@_-'
+                    cell.font = Font(color='FF0000', bold=True)
+                else:
+                    cell.number_format = '#,##0.00'
+                    cell.font = Font(bold=True)
             else:
                 cell.value = ''
         current_row += 2
         
-        # === Add aging summary ===
+        # === Add aging summary (only non-zero categories) ===
         total_aging = within_120 + over_120 + over_180
         
         ws.cell(row=current_row, column=1).value = 'AGING'
         ws.cell(row=current_row, column=1).font = Font(bold=True)
         current_row += 1
         
-        ws.cell(row=current_row, column=1).value = 'Within 120 Days - PPW'
-        cell_within = ws.cell(row=current_row, column=2)
-        cell_within.value = within_120
-        cell_within.number_format = '#,##0.00'
-        cell_within.font = Font(underline='single')
-        current_row += 1
+        # Only add Within 120 Days if non-zero
+        if within_120 != 0:
+            ws.cell(row=current_row, column=1).value = 'Within 120 Days - PPW'
+            cell_within = ws.cell(row=current_row, column=2)
+            cell_within.value = within_120
+            cell_within.number_format = '#,##0.00'
+            cell_within.font = Font(underline='single')
+            current_row += 1
         
-        ws.cell(row=current_row, column=1).value = 'Over 120 Days'
-        cell_over120 = ws.cell(row=current_row, column=2)
-        cell_over120.value = over_120
-        cell_over120.number_format = '#,##0.00'
-        cell_over120.font = Font(underline='single')
-        current_row += 1
+        # Only add Over 120 Days if non-zero
+        if over_120 != 0:
+            ws.cell(row=current_row, column=1).value = 'Over 120 Days'
+            cell_over120 = ws.cell(row=current_row, column=2)
+            cell_over120.value = over_120
+            cell_over120.number_format = '#,##0.00'
+            cell_over120.font = Font(underline='single')
+            current_row += 1
         
-        ws.cell(row=current_row, column=1).value = 'Over 180 Days'
-        cell_over180 = ws.cell(row=current_row, column=2)
-        cell_over180.value = over_180
-        cell_over180.number_format = '#,##0.00'
-        cell_over180.font = Font(underline='single')
-        current_row += 1
+        # Only add Over 180 Days if non-zero
+        if over_180 != 0:
+            ws.cell(row=current_row, column=1).value = 'Over 180 Days'
+            cell_over180 = ws.cell(row=current_row, column=2)
+            cell_over180.value = over_180
+            cell_over180.number_format = '#,##0.00'
+            cell_over180.font = Font(underline='single')
+            current_row += 1
         
         total_cell_1 = ws.cell(row=current_row, column=1)
         total_cell_1.value = 'Total'
@@ -269,16 +293,6 @@ def apply_premium_formatting_merged(file_path, reinsurer_groups):
         total_cell_2.font = Font(bold=True, underline='single')
         total_cell_2.number_format = '#,##0.00'
         current_row += 2
-        
-        # === Format negative Balance Due values to (X.XX) in red ===
-        for row_idx in range(data_start_row, data_end_row + 1):
-            if balance_col:
-                cell = ws.cell(row=row_idx, column=balance_col)
-                if cell.value and isinstance(cell.value, (int, float)):
-                    if cell.value < 0:
-                        cell.value = abs(cell.value)
-                        cell.number_format = '(#,##0.00)'
-                        cell.font = Font(color='FF0000')  # Red color
     
     # === Add footer at the end (only once) ===
     current_row += 1
@@ -287,31 +301,21 @@ def apply_premium_formatting_merged(file_path, reinsurer_groups):
     regular_fmt = Font()
     
     italic_lines = {
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:"
+        "For your convenience, payments may be made via the BDO Bills Payment facility:"
     }
     bold_lines = {
-        "1. BDO Bills Payment", "a. BDO Mobile Application", "b. Over the Counter",
-        "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC"
-    }
-    
-    footer_lines = [
-        "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-        "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-        "For your convenience, you may pay your insurance premium using the following payment channels:",
-        "", "1. BDO Bills Payment", "a. BDO Mobile Application",
-        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: Policy Invoice Number (Bill Number)",
-        "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
-        "   ii. Subscriber Name: Assured Name", "   iii. Subscriber Account Number: Billing Invoice Number",
-        "", "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-        "   i. Biller: Philippines First Insurance Co or PFSINC(for short name)", "   ii. Reference Number: Billing Invoice Number",
-        "b. Over the Counter using BPI Express Assist (BEA) Machine",
-        "   i. Transaction: Bills Payment", "   ii. Merchant: Other Merchant",
-        "   iii. Reference Number: Billing Invoice Number", "",
+        "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page", "b. Over the Counter",
         "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
+    }
+    footer_lines = [
+        "For your convenience, payments may be made via the BDO Bills Payment facility:",
+        "", "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page",
+        "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: HO-0001",
+        "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
+        "   ii. Subscriber Name: Your Company Name", "   iii. Subscriber Account Number: HO-0001",
+        "", "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+        "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
     ]
     
     for line in footer_lines:
@@ -415,23 +419,40 @@ def apply_premium_formatting(file_path, reinsurer_names, is_merged=False):
         if aging_col and balance_col:
             for row in range(header_row + 1, data_end_row + 1):
                 aging_val = ws.cell(row=row, column=aging_col).value
-                balance_cell_val = ws.cell(row=row, column=balance_col).value
+                balance_cell = ws.cell(row=row, column=balance_col)
+                balance_cell_val = balance_cell.value
                 
-                try:
-                    balance_val = float(str(balance_cell_val).replace(',', ''))
-                    total_balance += balance_val
-                    
-                    if aging_val:
-                        aging_val = str(aging_val).strip().upper()
-                    
-                    if aging_val in ['CURRENT', 'OVER 30 DAYS', 'OVER 60 DAYS', 'OVER 90 DAYS']:
-                        within_120 += balance_val
-                    elif aging_val == 'OVER 120 DAYS':
-                        over_120 += balance_val
-                    elif aging_val == 'OVER 180 DAYS':
-                        over_180 += balance_val
-                except (ValueError, TypeError):
-                    continue
+                # Ensure Balance Due is stored as numeric
+                if balance_cell_val is not None:
+                    try:
+                        balance_val = float(str(balance_cell_val).replace(',', ''))
+                        balance_cell.value = balance_val  # Ensure it's numeric
+                        total_balance += balance_val
+                        
+                        if aging_val:
+                            aging_val = str(aging_val).strip().upper()
+                        
+                        if aging_val in ['CURRENT', 'OVER 30 DAYS', 'OVER 60 DAYS', 'OVER 90 DAYS']:
+                            within_120 += balance_val
+                        elif aging_val == 'OVER 120 DAYS':
+                            over_120 += balance_val
+                        elif aging_val == 'OVER 180 DAYS':
+                            over_180 += balance_val
+                    except (ValueError, TypeError):
+                        continue
+        
+        # === Apply formatting to Balance Due cells AFTER ensuring they're numeric ===
+        if balance_col:
+            for row in range(header_row + 1, data_end_row + 1):
+                cell = ws.cell(row=row, column=balance_col)
+                if cell.value is not None and isinstance(cell.value, (int, float)):
+                    if cell.value < 0:
+                        # Negative: show as (X.XX) in red
+                        cell.number_format = '_-* #,##0.00_-;_-* (#,##0.00);_-* "-"??_-;_-@_-'
+                        cell.font = Font(color='FF0000')
+                    else:
+                        # Positive: standard format
+                        cell.number_format = '#,##0.00'
         
         total_aging = within_120 + over_120 + over_180
         
@@ -439,9 +460,13 @@ def apply_premium_formatting(file_path, reinsurer_names, is_merged=False):
             cell = ws.cell(row=subtotal_row, column=col)
             cell.border = thin_border
             if col == balance_col:
-                cell.value = total_balance
-                cell.number_format = '#,##0.00'
-                cell.font = Font(bold=True)
+                cell.value = total_balance  # Numeric value
+                if total_balance < 0:
+                    cell.number_format = '_-* #,##0.00_-;_-* (#,##0.00);_-* "-"??_-;_-@_-'
+                    cell.font = Font(color='FF0000', bold=True)
+                else:
+                    cell.number_format = '#,##0.00'
+                    cell.font = Font(bold=True)
             else:
                 cell.value = ''
         
@@ -449,67 +474,66 @@ def apply_premium_formatting(file_path, reinsurer_names, is_merged=False):
         
         ws.cell(row=summary_start, column=1).value = 'AGING'
         ws.cell(row=summary_start, column=1).font = Font(bold=True)
+        summary_start += 1
         
-        ws.cell(row=summary_start + 1, column=1).value = 'Within 120 Days - PPW'
-        cell_within = ws.cell(row=summary_start + 1, column=2)
-        cell_within.value = within_120
-        cell_within.number_format = '#,##0.00'
-        cell_within.font = Font(underline='single')
+        # Only add Within 120 Days if non-zero
+        if within_120 != 0:
+            ws.cell(row=summary_start, column=1).value = 'Within 120 Days - PPW'
+            cell_within = ws.cell(row=summary_start, column=2)
+            cell_within.value = within_120
+            cell_within.number_format = '#,##0.00'
+            cell_within.font = Font(underline='single')
+            summary_start += 1
         
-        ws.cell(row=summary_start + 2, column=1).value = 'Over 120 Days'
-        cell_over120 = ws.cell(row=summary_start + 2, column=2)
-        cell_over120.value = over_120
-        cell_over120.number_format = '#,##0.00'
-        cell_over120.font = Font(underline='single')
+        # Only add Over 120 Days if non-zero
+        if over_120 != 0:
+            ws.cell(row=summary_start, column=1).value = 'Over 120 Days'
+            cell_over120 = ws.cell(row=summary_start, column=2)
+            cell_over120.value = over_120
+            cell_over120.number_format = '#,##0.00'
+            cell_over120.font = Font(underline='single')
+            summary_start += 1
         
-        ws.cell(row=summary_start + 3, column=1).value = 'Over 180 Days'
-        cell_over180 = ws.cell(row=summary_start + 3, column=2)
-        cell_over180.value = over_180
-        cell_over180.number_format = '#,##0.00'
-        cell_over180.font = Font(underline='single')
+        # Only add Over 180 Days if non-zero
+        if over_180 != 0:
+            ws.cell(row=summary_start, column=1).value = 'Over 180 Days'
+            cell_over180 = ws.cell(row=summary_start, column=2)
+            cell_over180.value = over_180
+            cell_over180.number_format = '#,##0.00'
+            cell_over180.font = Font(underline='single')
+            summary_start += 1
         
-        total_cell_1 = ws.cell(row=summary_start + 4, column=1)
+        total_cell_1 = ws.cell(row=summary_start, column=1)
         total_cell_1.value = 'Total'
         total_cell_1.font = Font(bold=True)
         
-        total_cell_2 = ws.cell(row=summary_start + 4, column=2)
+        total_cell_2 = ws.cell(row=summary_start, column=2)
         total_cell_2.value = total_aging
         total_cell_2.font = Font(bold=True, underline='single')
         total_cell_2.number_format = '#,##0.00'
         
-        footer_start_row = summary_start + 6
+        footer_start_row = summary_start + 2
         italic_fmt = Font(italic=True)
         bold_fmt = Font(bold=True)
         regular_fmt = Font()
         
         italic_lines = {
-            "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-            "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-            "For your convenience, you may pay your insurance premium using the following payment channels:"
+            "For your convenience, payments may be made via the BDO Bills Payment facility:"
         }
         bold_lines = {
-            "1. BDO Bills Payment", "a. BDO Mobile Application", "b. Over the Counter",
-            "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-            "b. Over the Counter using BPI Express Assist (BEA) Machine",
-            "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC"
-        }
-        
-        footer_lines = [
-            "Thank you for trusting your insurance needs with Philippines First Insurance Co., Inc. (PFIC)",
-            "Under the Insurance Code: NO INSURANCE POLICY is VALID & BINDING until it is fully paid.",
-            "For your convenience, you may pay your insurance premium using the following payment channels:",
-            "", "1. BDO Bills Payment", "a. BDO Mobile Application",
-            "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: Policy Invoice Number (Bill Number)",
-            "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
-            "   ii. Subscriber Name: Assured Name", "   iii. Subscriber Account Number: Billing Invoice Number",
-            "", "2. BPI Bills Payment", "a. BPI Mobile Application or BPI Online Banking",
-            "   i. Biller: Philippines First Insurance Co or PFSINC(for short name)", "   ii. Reference Number: Billing Invoice Number",
-            "b. Over the Counter using BPI Express Assist (BEA) Machine",
-            "   i. Transaction: Bills Payment", "   ii. Merchant: Other Merchant",
-            "   iii. Reference Number: Billing Invoice Number", "",
+            "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page", "b. Over the Counter",
             "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+            "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
+        }
+        footer_lines = [
+            "For your convenience, payments may be made via the BDO Bills Payment facility:",
+            "", "1. BDO Bills Payment", "a. BDO Mobile Application or BDO Web Page",
+            "   i. Biller: Philippines First Insurance Co., Inc.", "   ii. Reference Number: HO-0001",
+            "b. Over the Counter", "   i. Company Name: Philippines First Insurance Co., Inc.",
+            "   ii. Subscriber Name: Your Company Name", "   iii. Subscriber Account Number: HO-0001",
+            "", "NOTE: Please make checks payable to PHILIPPINES FIRST INSURANCE CO., INC",
+            "      Payments via LBP and BOC Peso are available only through special arrangement via fund transfer, with an advance copy of the remittance schedule."
         ]
-        
         for i, line in enumerate(footer_lines):
             cell = ws.cell(row=footer_start_row + i, column=1)
             cell.value = line
@@ -563,9 +587,9 @@ def process_premium(files):
     df['Aging'] = df.apply(determine_aging_premium, axis=1)
     df['REMARKS'] = ''
     
-    next_month = (datetime.now().replace(day=1) + pd.DateOffset(months=1))
-    month_short = next_month.strftime("%b").upper()
-    year = next_month.strftime("%Y")
+    current_date = datetime.now()
+    month_short = current_date.strftime("%b").upper()
+    year = current_date.strftime("%Y")
     updates_col_name = f'UPDATES_{month_short}. {year}'
     df[updates_col_name] = ''
     
@@ -583,6 +607,10 @@ def process_premium(files):
             df_processed['Balance Due'].astype(str).str.replace(',', ''), 
             errors='coerce'
         )
+    
+    # === MODIFICATION 1: Remove rows with Balance Due = 0 (keep negatives) ===
+    if 'Balance Due' in df_processed.columns:
+        df_processed = df_processed[df_processed['Balance Due'] != 0].copy()
     
     merge_premium_list, premium_rename_map = load_merge_config()
     
@@ -624,14 +652,28 @@ def process_premium(files):
                             addr_val = group_member_data['Address'].iloc[0]
                             address = str(addr_val) if pd.notna(addr_val) else ''
                         
-                        # Don't add total row here - formatting function will calculate it
-                        merged_sections.append((group_member, group_member_data, address))
+                        # === MODIFICATION 2: Check if subtotal = 0 before adding ===
+                        if 'Balance Due' in group_member_data.columns:
+                            subtotal = group_member_data['Balance Due'].sum()
+                            if subtotal != 0:
+                                merged_sections.append((group_member, group_member_data, address))
+                        else:
+                            merged_sections.append((group_member, group_member_data, address))
                 
                 if merged_sections and master_name:
                     output_dfs.append((master_name, merged_sections, True))
             else:
                 # Single reinsurer processing
                 reinsurer_df = df_processed[df_processed['Reinsurer'] == reinsurer].copy()
+                
+                # === MODIFICATION 2: Check if subtotal = 0 before adding ===
+                if 'Balance Due' in reinsurer_df.columns:
+                    subtotal = reinsurer_df['Balance Due'].sum()
+                    if subtotal == 0:
+                        print(f"  Skipping {reinsurer} - Balance Due subtotal is 0")
+                        processed_reinsurers.add(reinsurer_normalized)
+                        continue
+                
                 processed_reinsurers.add(reinsurer_normalized)
                 
                 address = ''

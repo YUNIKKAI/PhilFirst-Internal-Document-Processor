@@ -3,6 +3,11 @@ from soa_reinsurer.soa_reinsurer_premium import extract_soa_reinsurer_premium
 from soa_reinsurer.soa_reinsurer_cashcall import extract_soa_reinsurer_cashcall
 import shutil
 import os
+import traceback
+import logging
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # ✅ Blueprint setup
 soa_ri_bp = Blueprint("soa_reinsurer", __name__)
@@ -28,6 +33,7 @@ def soa_handler():
                     flash("No CSV files uploaded for Premium.")
                     return redirect(url_for("soa_reinsurer.soa_handler"))
                 
+                print(f"DEBUG: Processing {len(files)} premium file(s)")
                 result = extract_soa_reinsurer_premium(files)
                 
             elif file_type == 'cash-call':
@@ -45,7 +51,6 @@ def soa_handler():
                     return redirect(url_for("soa_reinsurer.soa_handler"))
                 
                 # Pass both files as a list to maintain compatibility with your function
-                # Assuming your function expects files in order: [bulk, summary]
                 files = [bulk_file, summary_file]
                 result = extract_soa_reinsurer_cashcall(files)
                 
@@ -75,7 +80,11 @@ def soa_handler():
             return response
 
         except Exception as e:
-            flash(f"Error processing files: {str(e)}")
+            error_msg = f"Error processing files: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            print(f"TRACEBACK: {traceback.format_exc()}")
+            logger.error(error_msg, exc_info=True)
+            flash(error_msg)
             return redirect(url_for("soa_reinsurer.soa_handler"))
 
     # 🧾 Render upload page

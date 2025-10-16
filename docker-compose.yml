@@ -25,5 +25,5 @@ services:
     environment:
       NGROK_AUTHTOKEN: 32RVRq8TS5LHFhYJnhNUkhD0ZL2_7qVC8fc57o13VgEtGo6eH
     ports:
-      - "4040:4040"   # ngrok web UI
+      - "4041:4040"   # ngrok web UI
     restart: always
